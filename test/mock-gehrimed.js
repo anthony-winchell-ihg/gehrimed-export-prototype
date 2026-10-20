@@ -74,7 +74,7 @@ const dropdown = (id, label, items) => `
     <ul class="dropdown-menu hidden">${items.map((i) => `<li><a onclick="pick('${id}', this)">${i}</a></li>`).join("")}</ul>
   </div>`;
 
-const appHtml = (days, wrongPromptFor, restoreDelayMs) => `<!doctype html><html><head><style>
+const appHtml = (days, wrongPromptFor, restoreDelayMs, rowCap) => `<!doctype html><html><head><style>
   .hidden{display:none}
   .dropdown-menu{list-style:none;margin:0;padding:4px 0;border:1px solid #999;background:#fff;position:absolute;z-index:20}
   .dropdown-menu:not(.hidden){animation:menu-open 300ms ease-out}
@@ -126,6 +126,8 @@ const appHtml = (days, wrongPromptFor, restoreDelayMs) => `<!doctype html><html>
 const DAYS = ${JSON.stringify(days)};
 const RESTORE_DELAY_MS = ${JSON.stringify(restoreDelayMs)};
 const WRONG_PROMPT_FOR = ${JSON.stringify(wrongPromptFor ?? null)}; // test: prompt carries the wrong encounter
+// Like the real site's "Displaying the first 500 results": never more rows than this, whatever Per Page says.
+const ROW_CAP = ${JSON.stringify(rowCap)} ?? Infinity;
 const P = ${JSON.stringify(Array.from({ length: 30 }, (_, i) => mockPatient(i)))};
 const TEST = ${JSON.stringify(MOCK_TEST_PATIENT_IDS)};
 const BROKEN = ${JSON.stringify(MOCK_BROKEN_IDS)};
@@ -207,7 +209,7 @@ function render(){
 }
 $('per-page').onchange = () => busy(drawRows);
 function drawRows(){
-  const n = Number($('per-page').value);
+  const n = Math.min(Number($('per-page').value), ROW_CAP);
   $('rows').innerHTML = list.slice(0, n).map((id, i) =>
     '<tr><td><div class="btn-group dropright">' +
       '<a class="btn-xs btn btn-default dialog">View</a>' +
@@ -253,8 +255,8 @@ const oktaPage = (username, error) => `<!doctype html><title>Netsmart Technologi
   <input id="okta-signin-submit" type="submit" class="button button-primary" value="Sign In">
 </form>`;
 
-/** @param {{ download?: "pdf" | "zip", requireLogin?: boolean }} options */
-export const startMock = async ({ download = "pdf", requireLogin = false, wrongPromptFor = null, restoreDelayMs = 1_200 } = {}) => {
+/** @param {{ download?: "pdf" | "zip", requireLogin?: boolean, rowCap?: number }} options */
+export const startMock = async ({ download = "pdf", requireLogin = false, wrongPromptFor = null, restoreDelayMs = 1_200, rowCap = null } = {}) => {
   // Per-instance copy so tests can add encounters while the mock runs ("newly signed" notes).
   const days = structuredClone(MOCK_DAYS);
   const work = await fs.mkdtemp(path.join(os.tmpdir(), "mock-gehrimed-"));
@@ -279,7 +281,7 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     if (url.pathname === "/dash") {
       res.writeHead(200, { "content-type": "text/html" }).end(dashHtml);
     } else if (url.pathname === "/app") {
-      res.writeHead(200, { "content-type": "text/html" }).end(appHtml(days, wrongPromptFor, restoreDelayMs));
+      res.writeHead(200, { "content-type": "text/html" }).end(appHtml(days, wrongPromptFor, restoreDelayMs, rowCap));
     } else if (url.pathname === "/Encounter/Download" && req.method === "POST") {
       const form = await readForm(req);
       const { body, type, ext } = await makeDownload(form.get("EncounterID"), form.get("Password"));

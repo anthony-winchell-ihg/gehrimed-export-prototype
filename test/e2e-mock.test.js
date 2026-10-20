@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isPdf } from "../src/archive/sevenZip.js";
 import { isEncryptedPdf } from "../src/archive/pdf.js";
+import { readManifest, sha256File } from "../src/manifest.js";
 import { MOCK_DAYS, MOCK_LOGIN, expectedNames, mockPatient, startMock } from "./mock-gehrimed.js";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -70,6 +71,24 @@ for (const mode of ["pdf", "zip"]) {
         const state = await fs.readFile(env.STATE_FILE, "utf8");
         assert.doesNotMatch(state, /PAT[A-Z]|TESTLAST|Testlast/);
         assert.equal(Object.keys(JSON.parse(state).exported).length, MOCK_DAYS[day].length);
+
+        // Manifest: one line per PDF with the IDs step 2 needs; each sha256 matches a file in the folder.
+        const stateDir = path.dirname(env.STATE_FILE);
+        const manifest = await readManifest(path.join(stateDir, "manifest.jsonl"));
+        assert.equal(manifest.length, MOCK_DAYS[day].length);
+        assert.deepEqual(manifest.map((m) => m.encounterId), MOCK_DAYS[day]);
+        assert.deepEqual(manifest[0], { ...manifest[0], patientId: "100000", dateOfService: "2026-10-12", signedOn: day });
+        const hashes = new Set(await Promise.all(files.map((f) => sha256File(path.join(dayDir, f)))));
+        assert.ok(manifest.every((m) => hashes.has(m.sha256)), "every manifest hash matches a saved PDF");
+        assert.doesNotMatch(await fs.readFile(path.join(stateDir, "manifest.jsonl"), "utf8"), /PAT[A-Z]|TESTLAST|Testlast/);
+
+        // Ledger: the day's counts, no names or IDs.
+        const ledgerText = await fs.readFile(path.join(stateDir, "ledger.json"), "utf8");
+        const entry = JSON.parse(ledgerText).days[day];
+        assert.equal(entry.signed, 25);
+        assert.equal(entry.exported, 25);
+        assert.equal(entry.notShown, 0);
+        assert.doesNotMatch(ledgerText, /9000001|PAT[A-Z]/);
       });
 
       it("running the same day again downloads nothing new", async () => {
@@ -107,6 +126,44 @@ for (const mode of ["pdf", "zip"]) {
     }
   });
 }
+
+describe("results that don't all fit on GEHRIMed's results page", { timeout: 240_000 }, () => {
+  let mock, tmp, env;
+  before(async () => {
+    mock = await startMock({ requireLogin: true, rowCap: 20 }); // 25 signed, only 20 shown
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "cap-test-"));
+    env = {
+      GEHRIMED_URL: mock.url,
+      GEHRIMED_USERNAME: MOCK_LOGIN.username,
+      GEHRIMED_PASSWORD: MOCK_LOGIN.password,
+      OUTPUT_DIR: path.join(tmp, "out"),
+      STATE_FILE: path.join(tmp, "state.json"),
+      LOG_DIR: path.join(tmp, "logs"),
+    };
+  });
+  after(async () => {
+    await mock.close();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("run.js exports what it can, then reports the missing ones and exits 1", async () => {
+    const { code, out } = await runNode("run.js", env, ["--headless", "--date", "2026-10-13", "--limit", "0"]);
+    assert.equal(code, 1, out);
+    assert.match(out, /only 20 are on the results page — 5 can't be reached/);
+    assert.match(out, /saved 20 · failed 0 · NOT on the results page 5/);
+    const ledger = JSON.parse(await fs.readFile(path.join(tmp, "ledger.json"), "utf8"));
+    assert.equal(ledger.days["2026-10-13"].notShown, 5);
+  });
+
+  it("watch.js does not mark the day complete, and says it needs a look", async () => {
+    const { code, out } = await runNode("watch.js", env, ["--once", "--today", "2026-10-14"]);
+    assert.match(out, /2026-10-13: 25 signed · 20 already exported · 0 new saved · 5 NOT on the results page/);
+    assert.match(out, /⚠️ {2}2026-10-13 needs a look: 5 not on the results page/);
+    const state = JSON.parse(await fs.readFile(env.STATE_FILE, "utf8"));
+    assert.equal(state.lastCompletedDay, undefined, "a day with unreachable notes must be checked again");
+    assert.equal(code, 1, out); // 10-14 has a broken row too
+  });
+});
 
 describe("watch.js against mock GEHRIMed", { timeout: 300_000 }, () => {
   let mock, tmp, env;
@@ -154,6 +211,7 @@ describe("watch.js against mock GEHRIMed", { timeout: 300_000 }, () => {
     // 10-07 is 6 days before 10-13: kept. 10-18 (from the log test) is newer: kept.
     assert.deepEqual(folders, ["2026-10-07", "2026-10-13", "2026-10-18"]);
     assert.match(out, /2026-10-12: 0 signed/);
+    assert.match(out, /2026-10-12 needs a look: 0 signed on a weekday/); // a Monday — holiday, or a broken search?
     assert.match(out, /2026-10-13: 25 signed · 0 already exported · 25 new saved/);
     assert.equal((await listPdfs(path.join(env.OUTPUT_DIR, "2026-10-13"))).length, 25);
   });

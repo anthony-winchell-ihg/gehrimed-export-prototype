@@ -14,6 +14,10 @@ export const outputDir = path.resolve(projectDir, process.env.OUTPUT_DIR || "out
 export const stateFile = path.resolve(projectDir, process.env.STATE_FILE || "state/exported.json");
 // Only one export may run at a time (see src/lock.js).
 export const lockFile = path.join(path.dirname(stateFile), "export.lock");
+// Kept for good next to the state file: daily counts (src/ledger.js) and which
+// PDF is which encounter (src/manifest.js). IDs and counts only — no names.
+export const ledgerFile = path.join(path.dirname(stateFile), "ledger.json");
+export const manifestFile = path.join(path.dirname(stateFile), "manifest.jsonl");
 export const debugDir = path.resolve(projectDir, "debug"); // snapshots: structure only, no patient data
 export const logDir = path.resolve(projectDir, process.env.LOG_DIR || "logs"); // daily logs: IDs and counts only
 export const watchIntervalMinutes = Number(process.env.WATCH_INTERVAL_MINUTES || 15);

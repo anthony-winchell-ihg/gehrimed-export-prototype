@@ -8,8 +8,9 @@ import path from "node:path";
 import { searchSignedOn, showAllResults } from "./gehrimed/search.js";
 import { downloadEncounter, isTestPatient, readColumns, readRowDetails, resultRows } from "./gehrimed/download.js";
 import { extractPdfs } from "./archive/sevenZip.js";
-import { buildPdfName } from "./naming.js";
+import { buildPdfName, parseGehrimedDate } from "./naming.js";
 import { logDetails } from "./logger.js";
+import { appendManifest, sha256File } from "./manifest.js";
 
 const MAX_FAILURES_IN_A_ROW = 5;
 
@@ -22,15 +23,29 @@ const MAX_FAILURES_IN_A_ROW = 5;
  * @param o.password          per-run password for GEHRIMed's encryption prompt
  * @param o.limit             max NEW encounters to download (0 = no limit)
  * @param o.onFailure         async (error) => void — e.g. save a debug snapshot
- * @returns {Promise<{ found, alreadyExported, saved, failed, givenUp, testPatients }>}
+ * @param o.ledger            optional, from loadLedger() — this check's counts are recorded there
+ * @param o.manifestFile      optional — one line per saved PDF is appended (see manifest.js)
+ * @returns {Promise<{ found, alreadyExported, saved, failed, givenUp, testPatients, notShown }>}
+ *   notShown > 0 means GEHRIMed reported more results than its page showed —
+ *   those were never attempted, so the day must not count as complete.
  */
-export const exportSignedOn = async ({ context, page, day, state, outputDir, password, limit = 0, onFailure }) => {
-  const dayLabel = day.toFormat("yyyy-MM-dd");
-  const counts = { found: 0, alreadyExported: 0, saved: 0, failed: 0, givenUp: 0, testPatients: 0 };
+export const exportSignedOn = async (o) => {
+  const dayLabel = o.day.toFormat("yyyy-MM-dd");
+  const counts = { found: 0, alreadyExported: 0, saved: 0, failed: 0, givenUp: 0, testPatients: 0, notShown: 0 };
+  try {
+    await exportDay(o, dayLabel, counts);
+  } catch (e) {
+    await o.ledger?.recordFailedCheck(dayLabel, counts).catch(() => {});
+    throw e;
+  }
+  await o.ledger?.record(dayLabel, counts);
+  return counts;
+};
 
+const exportDay = async ({ context, page, day, state, outputDir, password, limit = 0, onFailure, manifestFile }, dayLabel, counts) => {
   const total = await searchSignedOn(page, day);
   counts.found = total;
-  if (!total) return counts;
+  if (!total) return;
 
   // GEHRIMed pages results 10 at a time — switch to its largest page size.
   const pageSize = await showAllResults(page, total);
@@ -43,7 +58,9 @@ export const exportSignedOn = async ({ context, page, day, state, outputDir, pas
     shown = await rows.count();
   }
   if (shown < total) {
-    console.warn(`   ⚠️  ${dayLabel}: only ${shown} of ${total} results fit on one page — the rest will be missed.`);
+    counts.notShown = total - shown;
+    console.warn(`   ⚠️  ${dayLabel}: GEHRIMed found ${total} but only ${shown} are on the results page — ` +
+      `${counts.notShown} can't be reached. This day will not be marked complete.`);
   }
 
   const columns = await readColumns(rows);
@@ -92,7 +109,19 @@ export const exportSignedOn = async ({ context, page, day, state, outputDir, pas
         const pdfs = await extractPdfs(file, password, path.join(work, encounterId));
 
         await fs.mkdir(dayDir, { recursive: true });
-        for (const pdf of pdfs) await publish(pdf, dayDir, baseName);
+        const entries = [];
+        for (const pdf of pdfs) {
+          await publish(pdf, dayDir, baseName);
+          entries.push({
+            encounterId,
+            patientId: details.patientId,
+            dateOfService: parseGehrimedDate(details.dateOfService)?.toISODate() ?? null,
+            signedOn: dayLabel,
+            sha256: await sha256File(pdf),
+            exportedAt: new Date().toISOString(),
+          });
+        }
+        if (manifestFile) await appendManifest(manifestFile, entries);
 
         await state.markExported(encounterId, dayLabel);
         counts.saved++;
@@ -116,7 +145,6 @@ export const exportSignedOn = async ({ context, page, day, state, outputDir, pas
   } finally {
     await fs.rm(work, { recursive: true, force: true });
   }
-  return counts;
 };
 
 /**

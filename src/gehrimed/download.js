@@ -60,6 +60,8 @@ export const readColumns = async (rows) => {
   };
   const missing = Object.entries(columns).filter(([, i]) => i < 0).map(([k]) => k);
   if (missing.length) throw new Error(`Results table is missing expected column(s): ${missing.join(", ")}`);
+  // Optional: only recorded in the manifest, so a missing column doesn't stop the export.
+  columns.patientId = find("Patient ID");
   return columns;
 };
 
@@ -75,12 +77,13 @@ const cellTexts = async (row) =>
 export const isTestPatient = async (row) =>
   (await row.locator("td span.label").filter({ hasText: /^\s*Test\s*$/i }).locator("visible=true").count()) > 0;
 
-/** Reads the details used for the file name from one result row. */
+/** Reads the details used for the file name (and the manifest) from one result row. */
 export const readRowDetails = async (row, columns) => {
   const cells = await cellTexts(row);
   const cell = (i) => cells[i] ?? "";
   return {
     encounterId: cell(columns.encounterId).match(/\d{6,}/)?.[0] ?? (await readEncounterId(row)),
+    patientId: columns.patientId >= 0 ? cell(columns.patientId) || null : null,
     firstName: cell(columns.firstName),
     lastName: cell(columns.lastName),
     dateOfBirth: cell(columns.dateOfBirth),

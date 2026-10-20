@@ -15,7 +15,8 @@ import { BILLING_ZONE, getPreviousDayWindow } from "./src/dateWindow.js";
 import { openGehrimed } from "./src/gehrimed/session.js";
 import { exportSignedOn } from "./src/exporter.js";
 import { loadState } from "./src/state.js";
-import { lockFile, outputDir, randomPassword, snapshotOnFailure, stateFile } from "./src/config.js";
+import { ledgerFile, lockFile, manifestFile, outputDir, randomPassword, snapshotOnFailure, stateFile } from "./src/config.js";
+import { loadLedger } from "./src/ledger.js";
 import { acquireLock } from "./src/lock.js";
 
 const { values: args } = parseArgs({
@@ -43,6 +44,7 @@ try {
 }
 
 const state = await loadState(stateFile);
+const ledger = await loadLedger(ledgerFile);
 let browser;
 let activePage = null;
 let exitCode = 0;
@@ -63,6 +65,8 @@ try {
     outputDir,
     password: randomPassword(),
     limit,
+    ledger,
+    manifestFile,
     onFailure: async (e) => {
       await snapshotOnFailure(page, e);
       if (args.debug) await page.pause();
@@ -71,9 +75,9 @@ try {
 
   const secs = (Date.now() - started) / 1000;
   console.log(`\n📁 ${outputDir}\\${day.toFormat("yyyy-MM-dd")}`);
-  console.log(`   Found ${c.found} · already exported ${c.alreadyExported} · saved ${c.saved} · failed ${c.failed}${c.givenUp ? ` · given up ${c.givenUp}` : ""}${c.testPatients ? ` · test patients skipped ${c.testPatients}` : ""}`);
+  console.log(`   Found ${c.found} · already exported ${c.alreadyExported} · saved ${c.saved} · failed ${c.failed}${c.givenUp ? ` · given up ${c.givenUp}` : ""}${c.testPatients ? ` · test patients skipped ${c.testPatients}` : ""}${c.notShown ? ` · NOT on the results page ${c.notShown}` : ""}`);
   if (c.saved) console.log(`   ⏱  ${Math.round(secs)}s total, ${(secs / c.saved).toFixed(1)}s per new encounter`);
-  if (c.failed) exitCode = 1;
+  if (c.failed || c.notShown) exitCode = 1;
 } catch (e) {
   exitCode = 1;
   if (/has been closed/.test(e.message)) {

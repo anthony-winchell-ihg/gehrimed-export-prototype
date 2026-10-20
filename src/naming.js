@@ -28,7 +28,7 @@ export const parseGehrimedDate = (text) => {
 /**
  * Builds the PDF file name from a result row's patient details.
  * Throws if a required piece is missing, so a bad row is reported (and the
- * encounter shows as failed in the manifest) rather than misnamed.
+ * encounter shows as failed and is retried) rather than misnamed.
  */
 export const buildPdfName = ({ firstName, lastName, dateOfBirth, dateOfService }) => {
   const first = cleanName(firstName);

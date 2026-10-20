@@ -15,6 +15,7 @@ import { BILLING_ZONE } from "./src/dateWindow.js";
 import { goToDashboard, openGehrimed } from "./src/gehrimed/session.js";
 import { exportSignedOn } from "./src/exporter.js";
 import { loadState } from "./src/state.js";
+import { assessDay, loadLedger } from "./src/ledger.js";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -25,6 +26,8 @@ import {
   randomPassword,
   snapshotOnFailure,
   stateFile,
+  ledgerFile,
+  manifestFile,
   watchIntervalMinutes,
   retentionDays,
   stateRetentionDays,
@@ -68,6 +71,7 @@ const todayNY = () =>
   args.today ? DateTime.fromISO(args.today, { zone: BILLING_ZONE }) : DateTime.now().setZone(BILLING_ZONE).startOf("day");
 
 const state = await loadState(stateFile);
+const ledger = await loadLedger(ledgerFile);
 let session = null;
 let sessionStartedAt = 0;
 let stopping = false;
@@ -100,7 +104,7 @@ const check = async () => {
 
   const today = todayNY();
   const days = daysToCheck(today);
-  const totals = { saved: 0, failed: 0, found: 0 };
+  const totals = { saved: 0, failed: 0, found: 0, notShown: 0 };
   for (const [i, day] of days.entries()) {
     if (stopping) break;
     let snapshotTaken = false;
@@ -111,6 +115,8 @@ const check = async () => {
       state,
       outputDir,
       password: randomPassword(),
+      ledger,
+      manifestFile,
       onFailure: async (e) => {
         if (!snapshotTaken) await snapshotOnFailure(session.page, e); // one snapshot per day per check
         snapshotTaken = true;
@@ -119,14 +125,19 @@ const check = async () => {
     totals.saved += c.saved;
     totals.failed += c.failed;
     totals.found += c.found;
+    totals.notShown += c.notShown;
     log(`${day.toFormat("yyyy-MM-dd")}: ${c.found} signed · ${c.alreadyExported} already exported · ${c.saved} new saved` +
       `${c.failed ? ` · ${c.failed} failed (will retry)` : ""}${c.givenUp ? ` · ${c.givenUp} given up after ${state.MAX_ATTEMPTS} tries` : ""}` +
-      `${c.testPatients ? ` · ${c.testPatients} test patient(s) skipped` : ""}`);
+      `${c.testPatients ? ` · ${c.testPatients} test patient(s) skipped` : ""}` +
+      `${c.notShown ? ` · ${c.notShown} NOT on the results page` : ""}`);
+    const dayLabel = day.toFormat("yyyy-MM-dd");
+    const { status, notes } = assessDay(dayLabel, ledger.days()[dayLabel], today);
+    if (status === "check") log(`⚠️  ${dayLabel} needs a look: ${notes.join("; ")}`);
     if (i < days.length - 1) await goToDashboard(session.page); // fresh page for the next search
   }
-  // Every day before today is now fully checked — unless something failed (then
-  // those days are checked again next time).
-  if (!totals.failed && !stopping) await state.markDayCompleted(today.minus({ days: 1 }).toFormat("yyyy-MM-dd"));
+  // Every day before today is now fully checked — unless something failed or
+  // couldn't be reached (then those days are checked again next time).
+  if (!totals.failed && !totals.notShown && !stopping) await state.markDayCompleted(today.minus({ days: 1 }).toFormat("yyyy-MM-dd"));
   return totals;
 };
 

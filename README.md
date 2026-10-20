@@ -68,6 +68,40 @@ encounters it hasn't exported before.
   expired. The browser is restarted every 6 hours.
 - **Safe with Teams/OneDrive sync:** each PDF is written under a temporary
   name and renamed when complete, so a half-written file is never synced.
+- **Nothing missed silently:** if GEHRIMed reports more results than its
+  results page shows (it displays at most 500), the extra ones are counted as
+  *not on the results page*, the day is **not** marked complete, and the log
+  says the day needs a look. A weekday with 0 signed notes is also flagged —
+  it could be a holiday, or a search that quietly broke.
+
+## Reliability record
+
+Every check also updates `state\ledger.json`: one entry per signature date with
+how many notes GEHRIMed listed, how many were exported, skipped as test
+patients, still failing, given up, or not on the results page — plus how many
+checks and failed attempts there were. Counts only (no names, no IDs), never
+deleted, so after a few weeks it shows how reliable the export has been.
+
+```bash
+npm run ledger                 # last 30 days, one line per day
+npm run ledger -- --days 90
+```
+
+✅ = every signed note exported · ⏳ = today, retries pending · ⚠️ = needs a look
+(the reason is shown). "Signed" is GEHRIMed's own search count, so compare it
+with another source now and then.
+
+## Which file is which encounter (for filing in eCW later)
+
+Each saved PDF also gets a line in `state\manifest.jsonl`:
+
+```json
+{"encounterId":"…","patientId":"…","dateOfService":"2026-10-12","signedOn":"2026-10-13","sha256":"…","exportedAt":"…"}
+```
+
+No file names or patient names. To find which encounter a PDF is, hash it
+(`certutil -hashfile <file> SHA256`) and look up the `sha256` — this keeps
+working after billing renames or moves the file. Never deleted.
 
 ## Running it all the time (Windows Task Scheduler)
 
@@ -130,5 +164,6 @@ signed note, and that **Resend is never clicked**.
 ## Not done yet
 
 - Addenda (amended notes are not re-sent yet)
-- Teams message on new files / alerts when checks keep failing
+- Teams message on new files / alerts when checks keep failing (or a day needs a look)
+- More than 500 notes signed in one day: now reported, but not yet exported (would need GEHRIMed's paging)
 - Moving it into the billerbob repo; tests in CI

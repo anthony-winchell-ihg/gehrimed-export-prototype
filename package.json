@@ -8,7 +8,8 @@
     "export": "node --env-file-if-exists=.env run.js",
     "test": "node --test \"src/**/*.test.js\" \"test/**/*.test.js\"",
     "watch": "node --env-file-if-exists=.env watch.js",
-    "report": "node --env-file-if-exists=.env report.js"
+    "report": "node --env-file-if-exists=.env report.js",
+    "ledger": "node --env-file-if-exists=.env ledger.js"
   },
   "dependencies": {
     "7zip-bin": "5.2.0",
