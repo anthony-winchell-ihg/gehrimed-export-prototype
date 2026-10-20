@@ -9,6 +9,7 @@ import { searchSignedOn, showAllResults } from "./gehrimed/search.js";
 import { downloadEncounter, isTestPatient, readColumns, readRowDetails, resultRows } from "./gehrimed/download.js";
 import { extractPdfs } from "./archive/sevenZip.js";
 import { buildPdfName } from "./naming.js";
+import { logDetails } from "./logger.js";
 
 const MAX_FAILURES_IN_A_ROW = 5;
 
@@ -102,6 +103,7 @@ export const exportSignedOn = async ({ context, page, day, state, outputDir, pas
         failuresInARow++;
         const attempts = encounterId ? await state.markFailed(encounterId).catch(() => "?") : "-";
         console.error(`   ❌ ${dayLabel} ${encounterId ?? `row ${i + 1}`} (attempt ${attempts}/${state.MAX_ATTEMPTS}): ${e.message.split("\n")[0]}`);
+        logDetails(`${dayLabel} ${encounterId ?? `row ${i + 1}`}`, e); // full explanation → log file only
         if (onFailure && !snapshotTaken) await onFailure(e); // one snapshot per day is enough
         snapshotTaken = true;
         // (No Escape here: in GEHRIMed it closes the search window. downloadEncounter

@@ -84,13 +84,31 @@ export const goToDashboard = async (page, { loginTimeoutMs = 5 * 60_000 } = {}) 
  * screen to appear. One retry if even that is slow.
  */
 const loadGehrimed = async (page) => {
-  for (let attempt = 1; ; attempt++) {
+  // Brief network drops (after sleep, Wi-Fi/VPN reconnecting) show up as
+  // net::ERR_NAME_NOT_RESOLVED, ERR_INTERNET_DISCONNECTED, ERR_NETWORK_CHANGED…
+  // (seen 2026-10-20). Wait and retry those instead of failing the whole check.
+  const NETWORK = /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|CONNECTION_\w+|ADDRESS_UNREACHABLE|TIMED_OUT|NETWORK_IO_SUSPENDED)/;
+  const networkWaits = [5_000, 15_000, 30_000];
+  let networkTries = 0;
+  let slowTries = 0;
+  for (;;) {
     try {
       await page.goto(GEHRIMED_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
       return;
     } catch (e) {
-      if (attempt >= 2 || !/Timeout/i.test(e.message)) throw e;
-      step("GEHRIMed is slow to load — trying again");
+      const network = e.message.match(NETWORK);
+      if (network && networkTries < networkWaits.length) {
+        const wait = networkWaits[networkTries++];
+        step(`network problem (${network[0].replace("net::", "")}) — trying again in ${wait / 1000}s`);
+        await page.waitForTimeout(wait);
+        continue;
+      }
+      if (/Timeout/i.test(e.message) && slowTries++ < 1) {
+        step("GEHRIMed is slow to load — trying again");
+        continue;
+      }
+      if (network) throw new Error(`Can't reach GEHRIMed — network problem (${network[0].replace("net::", "")}) for over a minute`);
+      throw e;
     }
   }
 };

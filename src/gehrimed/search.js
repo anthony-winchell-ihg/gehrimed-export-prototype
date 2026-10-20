@@ -37,22 +37,7 @@ import {
 export const searchSignedOn = async (page, date) => {
   const wanted = `Date of Signature is ${date.toFormat("yyyy-MM-dd")}`;
 
-  // Reuse the Advanced Search window if it's still open from the previous search.
-  let dialog = await findVisible(page, (f) => f.locator("#search-dialog"), "the Advanced Search window", {
-    timeout: 1_000,
-  }).catch(() => null);
-  if (!dialog) {
-    step("opening Search");
-    await clickText(page, "Search");
-    await waitForIdle(page);
-
-    step("opening Advanced Search");
-    await clickButton(page, "Advanced Search");
-    await waitForIdle(page);
-    dialog = await findVisible(page, (f) => f.locator("#search-dialog"), "the Advanced Search window", {
-      timeout: 30_000,
-    });
-  }
+  const dialog = await openAdvancedSearch(page);
 
   // GEHRIMed keeps old criteria HIDDEN until a new one is added — then they all
   // reappear together (inspected 2026-10-19). So: add our date, check the list,
@@ -95,6 +80,58 @@ const readResultCount = async (page, dialog) => {
     }
     await page.waitForTimeout(750);
   }
+};
+
+/**
+ * Gets the Advanced Search window open, whatever state GEHRIMed is in.
+ *
+ * After a reload, GEHRIMed RESTORES windows that were open before (the Search
+ * window has data-auto-refresh="True"), a moment after the page loads
+ * (seen 2026-10-20). A restored window covers the left menu, so clicking
+ * "Search" there fails. So: wait for that to settle, then
+ *   • Advanced Search already open → use it
+ *   • the Search window open       → click its "Advanced Search" button
+ *   • neither                      → left menu "Search", then "Advanced Search"
+ */
+const openAdvancedSearch = async (page) => {
+  const advanced = (f) => f.locator("#search-dialog");
+  const simple = (f) => f.locator("#simple-search-dialog");
+
+  await waitForIdle(page);
+  // Give a restored window up to 3 s to appear before deciding.
+  const which = await Promise.race([
+    findVisible(page, advanced, "the Advanced Search window", { timeout: 3_000 }).then(() => "advanced"),
+    findVisible(page, simple, "the Search window", { timeout: 3_000 }).then(() => "simple"),
+  ]).catch(() => "none");
+  await waitForIdle(page);
+
+  if (which === "advanced") {
+    step("Advanced Search is already open");
+  } else {
+    if (which === "simple") {
+      step("Search window is already open");
+    } else {
+      step("opening Search");
+      try {
+        await clickText(page, "Search", { timeout: 15_000 });
+      } catch (e) {
+        // A window restored late may now be covering the menu — that's fine if
+        // it's one of the search windows.
+        const appeared = await findVisible(page, (f) => advanced(f).or(simple(f)), "a search window", { timeout: 2_000 })
+          .then(() => true, () => false);
+        if (!appeared) throw e;
+        step("a search window opened on its own — using it");
+      }
+      await waitForIdle(page);
+      if (await findVisible(page, advanced, "the Advanced Search window", { timeout: 1_000 }).then(() => true, () => false)) {
+        return findVisible(page, advanced, "the Advanced Search window", { timeout: 5_000 });
+      }
+    }
+    step("opening Advanced Search");
+    await clickButton(page, "Advanced Search");
+    await waitForIdle(page);
+  }
+  return findVisible(page, advanced, "the Advanced Search window", { timeout: 30_000 });
 };
 
 /** Encounter → Date of Signature → <date> → Add. */
@@ -141,7 +178,13 @@ const removeAllCriteria = async (page, dialog) => {
   await removeAll.click({ timeout: 10_000 });
   await waitForIdle(page);
   for (let waited = 0; waited < 5_000; waited += 250) {
-    if ((await readCriteria(dialog)).length === 0) return;
+    if ((await readCriteria(dialog)).length === 0) {
+      // GEHRIMed rebuilds the dropdowns a moment after this — give it time
+      // before we start picking from them again.
+      await page.waitForTimeout(1_000);
+      await waitForIdle(page);
+      return;
+    }
     await page.waitForTimeout(250);
   }
   throw new Error(`"Remove All Search Criteria" left: ${(await readCriteria(dialog)).join("; ")}`);
@@ -171,20 +214,34 @@ const pickFromDropdown = async (dialog, index, label) => {
     return false;
   };
 
-  // 1. Open the menu, wait until the item has finished appearing (Bootstrap
-  //    animates it in — clicking mid-animation does nothing), then click it.
-  await toggle.click();
-  await item.waitFor({ state: "visible", timeout: 5_000 });
-  await item.click({ trial: true, timeout: 5_000 }); // waits until stable and not covered
-  await item.click();
-  if (await labelChanged()) return;
+  // GEHRIMed sometimes REBUILDS a dropdown's menu while it's open (seen right
+  // after "Remove All", 2026-10-20): the item goes "not stable", then
+  // "detached", and the new menu is closed. So the whole open-and-pick is
+  // retried, reopening the menu each time.
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      // Open the menu (if it isn't already), wait until the item has finished
+      // appearing (Bootstrap animates it in — clicking mid-animation does
+      // nothing), then click it.
+      if (!(await item.isVisible().catch(() => false))) await toggle.click();
+      await item.waitFor({ state: "visible", timeout: 5_000 });
+      await item.click({ trial: true, timeout: 5_000 }); // waits until stable and not covered
+      await item.click({ timeout: 5_000 });
+      if (await labelChanged()) return;
 
-  // 2. Fallback: trigger the link's click handler directly.
-  step(`dropdown ${index + 1} didn't change — retrying "${label}"`);
-  await item.evaluate((el) => el.click());
-  if (await labelChanged(5_000)) return;
-
-  throw new Error(`Dropdown ${index + 1} still shows "${await shown()}" after choosing "${label}"`);
+      // Clicked, but the label didn't change: trigger the link's handler directly.
+      await item.evaluate((el) => el.click());
+      if (await labelChanged(3_000)) return;
+      lastError = new Error(`Dropdown ${index + 1} still shows "${await shown()}" after choosing "${label}"`);
+    } catch (e) {
+      lastError = e; // item went stale or the menu closed under us
+    }
+    if ((await shown()) === label) return;
+    step(`dropdown ${index + 1} wasn't ready — trying "${label}" again (${attempt}/3)`);
+    await page.waitForTimeout(1_000); // let GEHRIMed finish rebuilding the menu
+  }
+  throw lastError;
 };
 
 /**

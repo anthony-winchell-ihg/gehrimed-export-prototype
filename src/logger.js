@@ -10,6 +10,23 @@ import { DateTime } from "luxon";
 
 const ZONE = "America/New_York";
 
+let writeToFileOnly = () => {}; // set by startFileLogging
+
+/**
+ * Writes to the log FILE only (not the terminal) — for full error details,
+ * e.g. Playwright's explanation of which element couldn't be clicked and why.
+ * Those name page elements and labels, never patient data.
+ */
+export const logDetails = (label, error) => {
+  // The message (for Playwright: which element, and why it couldn't be used),
+  // then a few "at ..." lines showing where in our code it happened.
+  const where = error instanceof Error && error.stack
+    ? error.stack.split("\n").filter((l) => /^\s+at /.test(l)).slice(0, 4)
+    : [];
+  const text = [error instanceof Error ? error.message : String(error), ...where].join("\n");
+  writeToFileOnly(`   ↳ details for ${label}:\n${text.split("\n").map((l) => `      ${l}`).join("\n")}`);
+};
+
 /**
  * Starts copying console output to daily log files. Call once, at startup.
  * @returns {{ file: () => string }} the current log file path
@@ -38,13 +55,19 @@ export const startFileLogging = (logDir, name) => {
       .join(" ");
     const ts = DateTime.now().setZone(ZONE).toFormat("yyyy-MM-dd HH:mm:ss");
     const tag = level === "log" ? "" : ` ${level.toUpperCase()}`;
-    const lines = text.split(/\r?\n/).map((l) => `${ts}${tag} ${l}`).join("\n");
+    const lines = text
+      .replace(/\x1b\[[0-9;]*m/g, "") // strip terminal color codes (Playwright adds them)
+      .split(/\r?\n/)
+      .map((l) => `${ts}${tag} ${l}`)
+      .join("\n");
     try {
       streamForToday().write(lines + "\n");
     } catch {
       // never let logging break the export
     }
   };
+
+  writeToFileOnly = (text) => write("details", [text]);
 
   for (const level of ["log", "warn", "error"]) {
     const original = console[level].bind(console);

@@ -16,6 +16,8 @@ import { goToDashboard, openGehrimed } from "./src/gehrimed/session.js";
 import { exportSignedOn } from "./src/exporter.js";
 import { loadState } from "./src/state.js";
 import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 import { deleteOldDayFolders, deleteOldFiles, deleteStaleTempFolders } from "./src/retention.js";
 import { acquireLock } from "./src/lock.js";
 import {
@@ -29,8 +31,9 @@ import {
   debugDir,
   logDir,
   lockFile,
+  projectDir,
 } from "./src/config.js";
-import { startFileLogging } from "./src/logger.js";
+import { logDetails, startFileLogging } from "./src/logger.js";
 
 // Everything printed below also goes to logs/watch-yyyy-MM-dd.log.
 const logging = startFileLogging(logDir, "watch");
@@ -48,6 +51,9 @@ const { values: args } = parseArgs({
     show: { type: "boolean", default: false },
     once: { type: "boolean", default: false },
     interval: { type: "string" },
+    // Debugging: after each check, if any code file changed since start, exit
+    // with code 4 so start-watch.cmd restarts it straight away on the new code.
+    "dev-reload": { type: "boolean", default: false },
     today: { type: "string" }, // testing only: pretend "today" is this date
   },
 });
@@ -165,6 +171,19 @@ log(`   Keeping ${retentionDays} day(s) of folders; older ones are deleted.`);
 log(`   Log file: ${logging.file()}`);
 log(`   ${state.exportedCount()} encounter(s) already exported. Stop with Ctrl+C.`);
 
+// --dev-reload: newest modification time of our code files.
+const codeFilesNewest = () => {
+  const dirs = [path.join(projectDir, "src"), path.join(projectDir, "src", "gehrimed"), path.join(projectDir, "src", "archive")];
+  let newest = fs.statSync(path.join(projectDir, "watch.js")).mtimeMs;
+  for (const d of dirs) {
+    for (const f of fs.readdirSync(d)) if (f.endsWith(".js")) newest = Math.max(newest, fs.statSync(path.join(d, f)).mtimeMs);
+  }
+  return newest;
+};
+const codeAtStart = args["dev-reload"] ? codeFilesNewest() : 0;
+const codeChangedSinceStart = () => codeFilesNewest() > codeAtStart;
+if (args["dev-reload"]) log("🛠  Debug mode: restarts automatically when the code changes");
+
 // A failed SIGN-IN must not be retried every 15 minutes: repeated wrong
 // passwords would lock the Netsmart/GEHRIMed account. After one, watch mode
 // stays running but stops logging in until it's restarted with fixed settings.
@@ -189,6 +208,7 @@ while (!stopping) {
       exitCode = 1;
       if (!stopping) {
         log(`❌ Check failed (${consecutiveErrors} in a row): ${e.message.split("\n")[0]}`);
+        logDetails("the failed check", e); // full explanation → log file only
         if (session?.page) await snapshotOnFailure(session.page, e);
         await closeSession(); // start clean next time
         if (SIGN_IN_PROBLEM.test(e.message)) {
@@ -201,6 +221,11 @@ while (!stopping) {
     }
   }
   if (args.once || stopping) break;
+  if (args["dev-reload"] && codeChangedSinceStart()) {
+    log("🔁 Code changed — restarting on the new version");
+    await closeSession();
+    process.exit(4);
+  }
 
   const wait = Math.max(5_000, intervalMs - (Date.now() - started));
   log(`   next check at ${DateTime.now().plus({ milliseconds: wait }).setZone(BILLING_ZONE).toFormat("HH:mm")}`);

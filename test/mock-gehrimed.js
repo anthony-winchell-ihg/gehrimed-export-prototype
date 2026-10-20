@@ -74,7 +74,7 @@ const dropdown = (id, label, items) => `
     <ul class="dropdown-menu hidden">${items.map((i) => `<li><a onclick="pick('${id}', this)">${i}</a></li>`).join("")}</ul>
   </div>`;
 
-const appHtml = (days, wrongPromptFor) => `<!doctype html><html><head><style>
+const appHtml = (days, wrongPromptFor, restoreDelayMs) => `<!doctype html><html><head><style>
   .hidden{display:none}
   .dropdown-menu{list-style:none;margin:0;padding:4px 0;border:1px solid #999;background:#fff;position:absolute;z-index:20}
   .dropdown-menu:not(.hidden){animation:menu-open 300ms ease-out}
@@ -124,6 +124,7 @@ const appHtml = (days, wrongPromptFor) => `<!doctype html><html><head><style>
 
 <script>
 const DAYS = ${JSON.stringify(days)};
+const RESTORE_DELAY_MS = ${JSON.stringify(restoreDelayMs)};
 const WRONG_PROMPT_FOR = ${JSON.stringify(wrongPromptFor ?? null)}; // test: prompt carries the wrong encounter
 const P = ${JSON.stringify(Array.from({ length: 30 }, (_, i) => mockPatient(i)))};
 const TEST = ${JSON.stringify(MOCK_TEST_PATIENT_IDS)};
@@ -137,7 +138,12 @@ const busy = (fn) => { show('loading'); setTimeout(() => { hide('loading'); fn()
 let criteria = [{ field: 'Date of Signature', value: '2026-10-13' }, { field: 'Date of Signature', value: '2026-10-12' }];
 let revealed = false;
 let list = [];
-function openSearch(){ busy(() => show('simple-search-dialog')); }
+function openSearch(){ busy(() => show('simple-search-dialog')); try { sessionStorage.setItem('restoreSearch', '1'); } catch {} }
+// Like the real site (data-auto-refresh): after a reload, a Search window that
+// was open is RESTORED by itself a moment later, covering the left menu.
+try {
+  if (sessionStorage.getItem('restoreSearch')) setTimeout(() => busy(() => show('simple-search-dialog')), RESTORE_DELAY_MS);
+} catch {}
 // Like the real site, leftover criteria (and the Remove All button) show up a
 // moment after the window opens — not immediately.
 function openAdvanced(){ busy(() => show('search-dialog')); }
@@ -169,7 +175,23 @@ function addCriteria(){
   $('SearchValue').type = 'text'; $('SearchValue').value = '';
   busy(render);
 }
-function removeAll(){ criteria = []; revealed = true; busy(render); }
+function removeAll(){
+  criteria = []; revealed = true; busy(render);
+  // Like the real site (2026-10-20): a moment after Remove All, the dropdown
+  // menus are rebuilt — any open menu closes and its items are replaced.
+  const rebuild = () => document.querySelectorAll('#search-dialog .dropdown-menu').forEach((m) => {
+    const fresh = m.cloneNode(true);
+    fresh.classList.add('hidden');
+    fresh.querySelectorAll('a').forEach((a, i) => { a.onclick = m.querySelectorAll('a')[i].onclick; });
+    m.replaceWith(fresh);
+  });
+  setTimeout(rebuild, 400);
+  setTimeout(rebuild, 900);
+  // ...and a couple of late rebuilds that land WHILE the script is picking,
+  // to exercise its retry.
+  setTimeout(rebuild, 1500);
+  setTimeout(rebuild, 1800);
+}
 function render(){
   (criteria.length ? show : hide)('criteria');
   $('pills').innerHTML = criteria.map(c => '<div class="btn-group print"><button class="btn btn-default print manual-print"><strong>' + c.field + '</strong> <em>' + c.value + '</em></button><button class="btn btn-default remove-criteria"><i class="fa fa-times">×</i></button></div> ').join('');
@@ -232,7 +254,7 @@ const oktaPage = (username, error) => `<!doctype html><title>Netsmart Technologi
 </form>`;
 
 /** @param {{ download?: "pdf" | "zip", requireLogin?: boolean }} options */
-export const startMock = async ({ download = "pdf", requireLogin = false, wrongPromptFor = null } = {}) => {
+export const startMock = async ({ download = "pdf", requireLogin = false, wrongPromptFor = null, restoreDelayMs = 1_200 } = {}) => {
   // Per-instance copy so tests can add encounters while the mock runs ("newly signed" notes).
   const days = structuredClone(MOCK_DAYS);
   const work = await fs.mkdtemp(path.join(os.tmpdir(), "mock-gehrimed-"));
@@ -257,7 +279,7 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     if (url.pathname === "/dash") {
       res.writeHead(200, { "content-type": "text/html" }).end(dashHtml);
     } else if (url.pathname === "/app") {
-      res.writeHead(200, { "content-type": "text/html" }).end(appHtml(days, wrongPromptFor));
+      res.writeHead(200, { "content-type": "text/html" }).end(appHtml(days, wrongPromptFor, restoreDelayMs));
     } else if (url.pathname === "/Encounter/Download" && req.method === "POST") {
       const form = await readForm(req);
       const { body, type, ext } = await makeDownload(form.get("EncounterID"), form.get("Password"));
