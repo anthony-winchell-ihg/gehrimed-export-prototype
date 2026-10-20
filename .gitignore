@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Everything this tool produces contains patient data
+output/
+*.pdf
+*.7z
+*.zip
+*.xlsx
+*.csv
+
+# Record of exported encounter IDs, and debug snapshots
+state/
+debug/
+logs/
