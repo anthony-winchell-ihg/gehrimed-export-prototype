@@ -304,11 +304,19 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
 
   // Outer page on a different port = different origin, like the real site.
   const outerServer = http.createServer((req, res) => {
+    // Like the real dashboard: something on the page keeps loading for a long
+    // time, so the browser's "load" event comes very late (45 s here).
+    if (req.url === "/slow-asset") {
+      const t = setTimeout(() => res.writeHead(200, { "content-type": "image/gif" }).end(), 45_000);
+      res.on("close", () => clearTimeout(t));
+      return;
+    }
     const loggedIn = /(?:^|;\s*)mock_session=1/.test(req.headers.cookie || "");
     res.writeHead(200, { "content-type": "text/html" }).end(
       requireLogin && !loggedIn
         ? usernamePage(authUrl)
-        : `<!doctype html><title>GEHRIMED</title><iframe id="gehrimed-iframe" src="http://127.0.0.1:${appPort}/app" style="width:100%;height:95vh"></iframe>`,
+        : `<!doctype html><title>GEHRIMED</title><iframe id="gehrimed-iframe" src="http://127.0.0.1:${appPort}/app" style="width:100%;height:95vh"></iframe>` +
+            `<img src="/slow-asset" style="display:none">`,
     );
   });
   await new Promise((r) => outerServer.listen(0, "127.0.0.1", r));
@@ -320,6 +328,7 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     addEncounter: (day, id) => (days[day] ??= []).push(id),
     state,
     close: async () => {
+      for (const s of [appServer, outerServer, authServer]) s.closeAllConnections(); // drop the slow request
       await Promise.all([appServer, outerServer, authServer].map((s) => new Promise((r) => s.close(r))));
       await fs.rm(work, { recursive: true, force: true });
     },

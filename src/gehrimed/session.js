@@ -55,12 +55,12 @@ export const openGehrimed = async ({ headless = false, loginTimeoutMs = 5 * 60_0
  * which also clears any dialogs left open by the previous check.
  */
 export const goToDashboard = async (page, { loginTimeoutMs = 5 * 60_000 } = {}) => {
-  await page.goto(GEHRIMED_URL);
+  await loadGehrimed(page);
 
   const creds = credentials();
   const outcome = await Promise.race([
-    findVisible(page, dashboardMenu, "the GEHRIMed dashboard", { timeout: 30_000 }).then(() => "dashboard"),
-    page.locator("#userName, #okta-signin-password").first().waitFor({ timeout: 30_000 }).then(() => "login"),
+    findVisible(page, dashboardMenu, "the GEHRIMed dashboard", { timeout: 60_000 }).then(() => "dashboard"),
+    page.locator("#userName, #okta-signin-password").first().waitFor({ timeout: 60_000 }).then(() => "login"),
   ]).catch(() => "unknown");
 
   if (outcome === "dashboard") return;
@@ -74,6 +74,25 @@ export const goToDashboard = async (page, { loginTimeoutMs = 5 * 60_000 } = {}) 
     timeout: creds ? 90_000 : loginTimeoutMs,
   });
   console.log("✅ Logged in.");
+};
+
+/**
+ * Opens GEHRIMed. Only waits for the page's HTML ("domcontentloaded"), NOT the
+ * full "load" event: GEHRIMed's dashboard keeps loading frames and background
+ * requests for a long time, so waiting for "load" can time out even though
+ * the page works. The callers then wait for the actual dashboard or login
+ * screen to appear. One retry if even that is slow.
+ */
+const loadGehrimed = async (page) => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.goto(GEHRIMED_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      return;
+    } catch (e) {
+      if (attempt >= 2 || !/Timeout/i.test(e.message)) throw e;
+      step("GEHRIMed is slow to load — trying again");
+    }
+  }
 };
 
 const autoLogin = async (page, username, password) => {

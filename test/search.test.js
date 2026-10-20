@@ -14,7 +14,7 @@ describe("searchSignedOn", { timeout: 90_000 }, () => {
     mock = await startMock();
     browser = await chromium.launch();
     page = await browser.newPage();
-    await page.goto(mock.url);
+    await page.goto(mock.url, { waitUntil: "domcontentloaded" }); // like session.js: don't wait for the slow "load" event
   });
   after(async () => {
     await browser.close();

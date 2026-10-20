@@ -25,7 +25,7 @@ describe("debug snapshot", { timeout: 60_000 }, () => {
 
   it("lists controls but leaves out table rows, input values and the dashboard frame", async () => {
     const page = await browser.newPage();
-    await page.goto(mock.url);
+    await page.goto(mock.url, { waitUntil: "domcontentloaded" }); // like session.js: don't wait for the slow "load" event
     const total = await searchSignedOn(page, DateTime.fromISO("2026-10-13"));
     assert.equal(total, 25);
 
