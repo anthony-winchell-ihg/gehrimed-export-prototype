@@ -2,11 +2,13 @@
 //   OUTPUT_DIR              where the date folders go (point it at the synced Teams folder)
 //   STATE_FILE              record of exported encounter IDs (default: state/exported.json)
 //   WATCH_INTERVAL_MINUTES  how often watch mode checks (default: 15)
+//   ACTIVE_HOURS / ACTIVE_DAYS  when watch mode checks (default: 07:30-17:00, mon-fri, New York time)
 //   GEHRIMED_USERNAME / GEHRIMED_PASSWORD   for automatic login
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { saveSnapshot } from "./gehrimed/snapshot.js";
+import { parseActiveHours } from "./activeHours.js";
 
 // Relative paths resolve against this project folder, not wherever the command was run from.
 export const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,6 +23,8 @@ export const manifestFile = path.join(path.dirname(stateFile), "manifest.jsonl")
 export const debugDir = path.resolve(projectDir, "debug"); // snapshots: structure only, no patient data
 export const logDir = path.resolve(projectDir, process.env.LOG_DIR || "logs"); // daily logs: IDs and counts only
 export const watchIntervalMinutes = Number(process.env.WATCH_INTERVAL_MINUTES || 15);
+// Outside these hours watch mode idles (see src/activeHours.js). "always" + "all" = never idle.
+export const activeHours = parseActiveHours(process.env.ACTIVE_HOURS || "07:30-17:00", process.env.ACTIVE_DAYS || "mon-fri");
 // Date folders this many days old or older are deleted by watch mode (7 → keep today + 6 days back).
 export const retentionDays = Number(process.env.RETENTION_DAYS || 7);
 // Exported-ID records are kept longer than the folders, just in case.

@@ -21,7 +21,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { deleteOldDayFolders, deleteOldFiles, deleteStaleTempFolders } from "./src/retention.js";
 import { acquireLock } from "./src/lock.js";
+import { describeActiveHours, isActive, nextActiveStart } from "./src/activeHours.js";
 import {
+  activeHours,
   outputDir,
   randomPassword,
   snapshotOnFailure,
@@ -178,6 +180,7 @@ const cleanUp = async () => {
 };
 
 log(`👀 Watching GEHRIMed every ${intervalMs / 60_000} min → ${outputDir}`);
+log(`   Active hours: ${describeActiveHours(activeHours)} (New York time)${args.once ? " — ignored with --once" : ""}`);
 log(`   Keeping ${retentionDays} day(s) of folders; older ones are deleted.`);
 log(`   Log file: ${logging.file()}`);
 log(`   ${state.exportedCount()} encounter(s) already exported. Stop with Ctrl+C.`);
@@ -201,9 +204,34 @@ if (args["dev-reload"]) log("🛠  Debug mode: restarts automatically when the c
 const SIGN_IN_PROBLEM = /Netsmart sign-in failed|extra verification|needs GEHRIMED_USERNAME/;
 let signInBlocked = false;
 
+const sleep = (ms) =>
+  new Promise((resolve) => {
+    wake = resolve;
+    setTimeout(resolve, ms);
+  });
+
 let consecutiveErrors = 0;
 let exitCode = 0;
+let idle = false;
 while (!stopping) {
+  // Outside active hours: close the browser and wait. Sleeps at most one
+  // interval at a time and looks again, so a changed clock or a laptop that
+  // slept through the night can't make it oversleep.
+  if (!args.once && !isActive(DateTime.now(), activeHours)) {
+    const resumeAt = nextActiveStart(DateTime.now(), activeHours);
+    if (!idle) {
+      idle = true;
+      await closeSession();
+      log(`😴 Outside active hours — idle until ${resumeAt.setZone(BILLING_ZONE).toFormat("ccc yyyy-MM-dd HH:mm")}. Nothing signed meanwhile is missed.`);
+    }
+    await sleep(Math.max(5_000, Math.min(intervalMs, resumeAt.toMillis() - Date.now())));
+    continue;
+  }
+  if (idle) {
+    idle = false;
+    log("☀️  Active hours started — checking again");
+  }
+
   const started = Date.now();
   if (signInBlocked) {
     log("⛔ Not checking: the last sign-in failed (see above). Fix GEHRIMED_USERNAME / GEHRIMED_PASSWORD in .env, " +
@@ -239,11 +267,9 @@ while (!stopping) {
   }
 
   const wait = Math.max(5_000, intervalMs - (Date.now() - started));
-  log(`   next check at ${DateTime.now().plus({ milliseconds: wait }).setZone(BILLING_ZONE).toFormat("HH:mm")}`);
-  await new Promise((resolve) => {
-    wake = resolve;
-    setTimeout(resolve, wait);
-  });
+  const nextCheck = DateTime.now().plus({ milliseconds: wait });
+  if (isActive(nextCheck, activeHours)) log(`   next check at ${nextCheck.setZone(BILLING_ZONE).toFormat("HH:mm")}`);
+  await sleep(wait);
 }
 
 await closeSession();

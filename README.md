@@ -29,6 +29,8 @@ Create `.env` (git-ignored):
 | `OUTPUT_DIR` | optional (default `./output`) | where the date folders go — point at the **synced Teams channel folder** |
 | `STATE_FILE` | optional (default `./state/exported.json`) | record of exported encounter IDs |
 | `WATCH_INTERVAL_MINUTES` | optional (default `15`) | how often watch mode checks |
+| `ACTIVE_HOURS` | optional (default `07:30-17:00`) | when watch mode checks, New York time; `always` = around the clock |
+| `ACTIVE_DAYS` | optional (default `mon-fri`) | which days, e.g. `mon-fri`, `mon,wed,fri`, `all` |
 | `LOG_DIR` | optional (default `./logs`) | daily log files (`watch-yyyy-MM-dd.log`), kept `RETENTION_DAYS` days |
 | `RETENTION_DAYS` | optional (default `7`) | watch mode deletes date folders this many days old or older (only folders named `yyyy-MM-dd`; in a synced Teams folder that deletes them in Teams too) |
 
@@ -49,6 +51,10 @@ encounters it hasn't exported before.
 - **No duplicates:** exported encounter IDs are recorded in `state/exported.json`
   (IDs and dates only — no names). Billing can move or delete files freely; they
   won't be downloaded again. Delete an ID from that file to re-export it.
+- **Active hours:** by default it checks 07:30–17:00, Monday–Friday. Outside
+  those hours it keeps running but idles (browser closed, no logins). Notes
+  signed in the evening or over the weekend are picked up by the first check
+  afterwards (see catch-up below). `--once` ignores active hours.
 - **Retries:** a failed encounter is retried on the next check; after 5 failures
   it's skipped and reported until someone looks at it.
 - **Catch-up after downtime:** it remembers the last fully checked day. After the
