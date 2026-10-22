@@ -11,8 +11,12 @@ import { DateTime } from "luxon";
 const DATE_FORMAT = "MM.dd.yyyy";
 
 const cleanName = (s) => {
-  const letters = String(s ?? "").normalize("NFKD").replace(/[^A-Za-z]/g, "");
-  return letters ? letters[0].toUpperCase() + letters.slice(1).toLowerCase() : "";
+  const letters = String(s ?? "")
+    .normalize("NFKD")
+    .replace(/[^A-Za-z]/g, "");
+  return letters
+    ? letters[0].toUpperCase() + letters.slice(1).toLowerCase()
+    : "";
 };
 
 /** Parses GEHRIMed's date text (e.g. "4/19/1931"). Returns a DateTime or null. */
@@ -30,7 +34,12 @@ export const parseGehrimedDate = (text) => {
  * Throws if a required piece is missing, so a bad row is reported (and the
  * encounter shows as failed and is retried) rather than misnamed.
  */
-export const buildPdfName = ({ firstName, lastName, dateOfBirth, dateOfService }) => {
+export const buildPdfName = ({
+  firstName,
+  lastName,
+  dateOfBirth,
+  dateOfService,
+}) => {
   const first = cleanName(firstName);
   const last = cleanName(lastName);
   const dob = parseGehrimedDate(dateOfBirth);
@@ -41,7 +50,10 @@ export const buildPdfName = ({ firstName, lastName, dateOfBirth, dateOfService }
     !dob && "date of birth",
     !dos && "date of service",
   ].filter(Boolean);
-  if (missing.length) throw new Error(`Can't build file name — missing/unreadable: ${missing.join(", ")}`);
+  if (missing.length)
+    throw new Error(
+      `Can't build file name — missing/unreadable: ${missing.join(", ")}`,
+    );
   return `${last}${first}_DOB${dob.toFormat(DATE_FORMAT)}_DOS${dos.toFormat(DATE_FORMAT)}`;
 };
 

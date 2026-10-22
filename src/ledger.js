@@ -22,7 +22,8 @@ export const loadLedger = async (file) => {
   try {
     data = { ...data, ...JSON.parse(await fs.readFile(file, "utf8")) };
   } catch (e) {
-    if (e.code !== "ENOENT") throw new Error(`Could not read ${file}: ${e.message}`);
+    if (e.code !== "ENOENT")
+      throw new Error(`Could not read ${file}: ${e.message}`);
   }
 
   const save = async () => {
@@ -80,13 +81,19 @@ export const assessDay = (day, e, today) => {
     return { status: "check", notes: ["no check of this day has finished"] };
   }
   const outstanding = e.signed - e.exported - e.testPatients;
-  if (e.notShown) notes.push(`${e.notShown} not on the results page (never attempted)`);
+  if (e.notShown)
+    notes.push(`${e.notShown} not on the results page (never attempted)`);
   if (e.givenUp) notes.push(`${e.givenUp} given up after 5 tries`);
-  if (outstanding > 0 && !e.notShown && !e.givenUp) notes.push(`${outstanding} not exported yet`);
-  if (outstanding < 0) notes.push(`${-outstanding} more exported than GEHRIMed now lists (unsigned/moved?)`);
+  if (outstanding > 0 && !e.notShown && !e.givenUp)
+    notes.push(`${outstanding} not exported yet`);
+  if (outstanding < 0)
+    notes.push(
+      `${-outstanding} more exported than GEHRIMed now lists (unsigned/moved?)`,
+    );
   // Zero notes signed on a weekday is possible (holiday) but is also what a
   // broken search would look like — so it's flagged for a person to confirm.
-  if (finished && e.signed === 0 && date.weekday <= 5) notes.push("0 signed on a weekday — holiday, or a search problem?");
+  if (finished && e.signed === 0 && date.weekday <= 5)
+    notes.push("0 signed on a weekday — holiday, or a search problem?");
 
   if (notes.length === 0) return { status: "ok", notes };
   // A day still in progress (today) with only retries pending is normal.

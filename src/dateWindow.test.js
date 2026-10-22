@@ -14,7 +14,9 @@ describe("getPreviousDayWindow", () => {
   });
 
   it("uses New York's date even when UTC is already the next day", () => {
-    const w = getPreviousDayWindow(DateTime.fromISO("2026-10-20T02:00:00Z", { zone: "utc" }));
+    const w = getPreviousDayWindow(
+      DateTime.fromISO("2026-10-20T02:00:00Z", { zone: "utc" }),
+    );
     assert.equal(w.start.toFormat("yyyy-MM-dd"), "2026-10-18");
   });
 });

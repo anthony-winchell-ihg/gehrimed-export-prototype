@@ -12,7 +12,10 @@ describe("sevenZip", () => {
   before(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "sevenzip-test-"));
     await fs.mkdir(path.join(dir, "src"));
-    await fs.writeFile(path.join(dir, "src", "note.pdf"), "%PDF-1.7\nfake test pdf\n");
+    await fs.writeFile(
+      path.join(dir, "src", "note.pdf"),
+      "%PDF-1.7\nfake test pdf\n",
+    );
     await fs.writeFile(path.join(dir, "src", "readme.txt"), "not a pdf");
   });
   after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -25,7 +28,11 @@ describe("sevenZip", () => {
   it("round-trips an encrypted zip and returns only the PDFs", async () => {
     const zip = path.join(dir, "out.zip");
     await zipFolder(path.join(dir, "src"), zip, "Test#Pass9");
-    const pdfs = await extractPdfs(zip, "Test#Pass9", path.join(dir, "extracted"));
+    const pdfs = await extractPdfs(
+      zip,
+      "Test#Pass9",
+      path.join(dir, "extracted"),
+    );
     assert.equal(pdfs.length, 1);
     assert.equal(path.basename(pdfs[0]), "note.pdf");
   });
@@ -41,6 +48,8 @@ describe("sevenZip", () => {
 
   it("passes a plain PDF straight through", async () => {
     const pdf = path.join(dir, "src", "note.pdf");
-    assert.deepEqual(await extractPdfs(pdf, "unused", path.join(dir, "x")), [pdf]);
+    assert.deepEqual(await extractPdfs(pdf, "unused", path.join(dir, "x")), [
+      pdf,
+    ]);
   });
 });

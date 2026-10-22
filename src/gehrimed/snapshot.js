@@ -13,15 +13,38 @@ const SKIP_FRAMES = /^(dashboardnx|scheduler-nx)$/i;
 
 const outlineInFrame = () => {
   const CONTROL = [
-    "button", "a", "input", "select", "option", "label", "th", "textarea",
-    '[role="button"]', '[role="menuitem"]', '[role="option"]', '[role="tab"]', '[role="dialog"]',
-    ".dropdown-toggle", ".dropdown-item", ".dropdown-menu", ".btn", ".modal", '[data-toggle]', '[data-bs-toggle]',
+    "button",
+    "a",
+    "input",
+    "select",
+    "option",
+    "label",
+    "th",
+    "textarea",
+    '[role="button"]',
+    '[role="menuitem"]',
+    '[role="option"]',
+    '[role="tab"]',
+    '[role="dialog"]',
+    ".dropdown-toggle",
+    ".dropdown-item",
+    ".dropdown-menu",
+    ".btn",
+    ".modal",
+    "[data-toggle]",
+    "[data-bs-toggle]",
   ].join(",");
-  const short = (s, n = 50) => (s || "").replace(/\s+/g, " ").trim().slice(0, n);
+  const short = (s, n = 50) =>
+    (s || "").replace(/\s+/g, " ").trim().slice(0, n);
   const isVisible = (el) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
-    return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
+    return (
+      r.width > 0 &&
+      r.height > 0 &&
+      cs.visibility !== "hidden" &&
+      cs.display !== "none"
+    );
   };
   // Inside table rows (patient data!) we keep only structure: tag + class +
   // role, for the first 2 rows, and text only for short button/menu labels
@@ -52,20 +75,43 @@ const outlineInFrame = () => {
       }
       const cls = short(String(el.className || ""), 60);
       if (cls) attrs.push(`class="${cls}"`);
-      const label = el.matches(ROW_CONTROL) ? safeLabel(el.innerText || el.textContent) : "";
-      out.push(`${isVisible(el) ? "V" : "-"} [row ${rowIndex(el) + 1}] <${tag}${attrs.length ? " " + attrs.join(" ") : ""}>${label ? " " + JSON.stringify(label) : ""}`);
+      const label = el.matches(ROW_CONTROL)
+        ? safeLabel(el.innerText || el.textContent)
+        : "";
+      out.push(
+        `${isVisible(el) ? "V" : "-"} [row ${rowIndex(el) + 1}] <${tag}${attrs.length ? " " + attrs.join(" ") : ""}>${label ? " " + JSON.stringify(label) : ""}`,
+      );
       continue;
     }
     const attrs = [];
-    for (const a of ["id", "role", "type", "name", "placeholder", "title", "aria-label", "data-toggle", "data-bs-toggle"]) {
+    for (const a of [
+      "id",
+      "role",
+      "type",
+      "name",
+      "placeholder",
+      "title",
+      "aria-label",
+      "data-toggle",
+      "data-bs-toggle",
+    ]) {
       const v = el.getAttribute(a);
       if (v) attrs.push(`${a}="${short(v, 40)}"`);
     }
     const cls = short(String(el.className || ""), 60);
     if (cls) attrs.push(`class="${cls}"`);
-    const text = tag === "input" || tag === "textarea" || tag === "select" ? "" : short(el.innerText || el.textContent, 50);
-    const depth = (() => { let d = 0; for (let p = el.parentElement; p; p = p.parentElement) d++; return d; })();
-    out.push(`${isVisible(el) ? "V" : "-"} ${"  ".repeat(Math.min(depth, 12))}<${tag}${attrs.length ? " " + attrs.join(" ") : ""}>${text ? " " + JSON.stringify(text) : ""}`);
+    const text =
+      tag === "input" || tag === "textarea" || tag === "select"
+        ? ""
+        : short(el.innerText || el.textContent, 50);
+    const depth = (() => {
+      let d = 0;
+      for (let p = el.parentElement; p; p = p.parentElement) d++;
+      return d;
+    })();
+    out.push(
+      `${isVisible(el) ? "V" : "-"} ${"  ".repeat(Math.min(depth, 12))}<${tag}${attrs.length ? " " + attrs.join(" ") : ""}>${text ? " " + JSON.stringify(text) : ""}`,
+    );
   }
   return out;
 };
@@ -83,19 +129,32 @@ const frameLabel = (frame) => {
 
 /** Saves a snapshot into `outputDir` (a debug folder) and returns its path. */
 export const saveSnapshot = async (page, outputDir, reason) => {
-  const lines = [`Snapshot: ${reason}`, `Taken: ${new Date().toISOString()}`, "V = visible, - = hidden", ""];
+  const lines = [
+    `Snapshot: ${reason}`,
+    `Taken: ${new Date().toISOString()}`,
+    "V = visible, - = hidden",
+    "",
+  ];
   for (const frame of page.frames()) {
     lines.push(`=== frame ${frameLabel(frame)}`);
     if (SKIP_FRAMES.test(frame.name())) {
-      lines.push("  (skipped — dashboard/scheduler frame, contains patient lists)", "");
+      lines.push(
+        "  (skipped — dashboard/scheduler frame, contains patient lists)",
+        "",
+      );
       continue;
     }
-    const outline = await frame.evaluate(outlineInFrame).catch((e) => [`  (could not read: ${e.message.split("\n")[0]})`]);
+    const outline = await frame
+      .evaluate(outlineInFrame)
+      .catch((e) => [`  (could not read: ${e.message.split("\n")[0]})`]);
     lines.push(...outline, "");
   }
   const dir = outputDir; // a debug folder — never the Teams folder
   await fs.mkdir(dir, { recursive: true });
-  const file = path.join(dir, `snapshot-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`);
+  const file = path.join(
+    dir,
+    `snapshot-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+  );
   await fs.writeFile(file, lines.join("\n"), "utf8");
   return file;
 };

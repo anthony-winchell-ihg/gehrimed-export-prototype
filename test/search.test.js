@@ -22,7 +22,13 @@ describe("searchSignedOn", { timeout: 90_000 }, () => {
   });
 
   const criteriaNow = async () =>
-    readCriteria(await findVisible(page, (f) => f.locator("#search-dialog"), "search window"));
+    readCriteria(
+      await findVisible(
+        page,
+        (f) => f.locator("#search-dialog"),
+        "search window",
+      ),
+    );
 
   it("clears a leftover criterion that appears late, and searches only the requested date", async () => {
     const total = await searchSignedOn(page, DateTime.fromISO("2026-10-13"));
@@ -50,22 +56,32 @@ describe("searchSignedOn", { timeout: 90_000 }, () => {
   });
 });
 
-describe("searchSignedOn when GEHRIMed restores the Search window LATE", { timeout: 90_000 }, () => {
-  let mock, browser, page;
-  before(async () => {
-    mock = await startMock({ restoreDelayMs: 4_000 }); // after the script's 3 s wait
-    browser = await chromium.launch();
-    page = await browser.newPage();
-    await page.goto(mock.url, { waitUntil: "domcontentloaded" });
-  });
-  after(async () => {
-    await browser.close();
-    await mock.close();
-  });
+describe(
+  "searchSignedOn when GEHRIMed restores the Search window LATE",
+  { timeout: 90_000 },
+  () => {
+    let mock, browser, page;
+    before(async () => {
+      mock = await startMock({ restoreDelayMs: 4_000 }); // after the script's 3 s wait
+      browser = await chromium.launch();
+      page = await browser.newPage();
+      await page.goto(mock.url, { waitUntil: "domcontentloaded" });
+    });
+    after(async () => {
+      await browser.close();
+      await mock.close();
+    });
 
-  it("still gets to the right search after a reload", async () => {
-    assert.equal(await searchSignedOn(page, DateTime.fromISO("2026-10-18")), 1);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    assert.equal(await searchSignedOn(page, DateTime.fromISO("2026-10-13")), MOCK_DAYS["2026-10-13"].length);
-  });
-});
+    it("still gets to the right search after a reload", async () => {
+      assert.equal(
+        await searchSignedOn(page, DateTime.fromISO("2026-10-18")),
+        1,
+      );
+      await page.reload({ waitUntil: "domcontentloaded" });
+      assert.equal(
+        await searchSignedOn(page, DateTime.fromISO("2026-10-13")),
+        MOCK_DAYS["2026-10-13"].length,
+      );
+    });
+  },
+);

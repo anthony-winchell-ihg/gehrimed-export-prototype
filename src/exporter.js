@@ -6,7 +6,13 @@ import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { searchSignedOn, showAllResults } from "./gehrimed/search.js";
-import { downloadEncounter, isTestPatient, readColumns, readRowDetails, resultRows } from "./gehrimed/download.js";
+import {
+  downloadEncounter,
+  isTestPatient,
+  readColumns,
+  readRowDetails,
+  resultRows,
+} from "./gehrimed/download.js";
 import { extractPdfs } from "./archive/sevenZip.js";
 import { buildPdfName, parseGehrimedDate } from "./naming.js";
 import { logDetails } from "./logger.js";
@@ -31,7 +37,15 @@ const MAX_FAILURES_IN_A_ROW = 5;
  */
 export const exportSignedOn = async (o) => {
   const dayLabel = o.day.toFormat("yyyy-MM-dd");
-  const counts = { found: 0, alreadyExported: 0, saved: 0, failed: 0, givenUp: 0, testPatients: 0, notShown: 0 };
+  const counts = {
+    found: 0,
+    alreadyExported: 0,
+    saved: 0,
+    failed: 0,
+    givenUp: 0,
+    testPatients: 0,
+    notShown: 0,
+  };
   try {
     await exportDay(o, dayLabel, counts);
   } catch (e) {
@@ -42,7 +56,21 @@ export const exportSignedOn = async (o) => {
   return counts;
 };
 
-const exportDay = async ({ context, page, day, state, outputDir, password, limit = 0, onFailure, manifestFile }, dayLabel, counts) => {
+const exportDay = async (
+  {
+    context,
+    page,
+    day,
+    state,
+    outputDir,
+    password,
+    limit = 0,
+    onFailure,
+    manifestFile,
+  },
+  dayLabel,
+  counts,
+) => {
   const total = await searchSignedOn(page, day);
   counts.found = total;
   if (!total) return;
@@ -50,7 +78,10 @@ const exportDay = async ({ context, page, day, state, outputDir, password, limit
   // GEHRIMed pages results 10 at a time — switch to its largest page size.
   const pageSize = await showAllResults(page, total);
   const rows = await resultRows(page);
-  if (!rows) throw new Error(`GEHRIMed reported ${total} result(s) but no result rows were found`);
+  if (!rows)
+    throw new Error(
+      `GEHRIMed reported ${total} result(s) but no result rows were found`,
+    );
   const expected = Math.min(total, pageSize);
   let shown = await rows.count();
   for (let waited = 0; shown < expected && waited < 30_000; waited += 500) {
@@ -59,8 +90,10 @@ const exportDay = async ({ context, page, day, state, outputDir, password, limit
   }
   if (shown < total) {
     counts.notShown = total - shown;
-    console.warn(`   ⚠️  ${dayLabel}: GEHRIMed found ${total} but only ${shown} are on the results page — ` +
-      `${counts.notShown} can't be reached. This day will not be marked complete.`);
+    console.warn(
+      `   ⚠️  ${dayLabel}: GEHRIMed found ${total} but only ${shown} are on the results page — ` +
+        `${counts.notShown} can't be reached. This day will not be marked complete.`,
+    );
   }
 
   const columns = await readColumns(rows);
@@ -106,7 +139,11 @@ const exportDay = async ({ context, page, day, state, outputDir, password, limit
           baseName: encounterId,
           expectedEncounterId: encounterId,
         });
-        const pdfs = await extractPdfs(file, password, path.join(work, encounterId));
+        const pdfs = await extractPdfs(
+          file,
+          password,
+          path.join(work, encounterId),
+        );
 
         await fs.mkdir(dayDir, { recursive: true });
         const entries = [];
@@ -115,7 +152,8 @@ const exportDay = async ({ context, page, day, state, outputDir, password, limit
           entries.push({
             encounterId,
             patientId: details.patientId,
-            dateOfService: parseGehrimedDate(details.dateOfService)?.toISODate() ?? null,
+            dateOfService:
+              parseGehrimedDate(details.dateOfService)?.toISODate() ?? null,
             signedOn: dayLabel,
             sha256: await sha256File(pdf),
             exportedAt: new Date().toISOString(),
@@ -130,15 +168,21 @@ const exportDay = async ({ context, page, day, state, outputDir, password, limit
       } catch (e) {
         counts.failed++;
         failuresInARow++;
-        const attempts = encounterId ? await state.markFailed(encounterId).catch(() => "?") : "-";
-        console.error(`   ❌ ${dayLabel} ${encounterId ?? `row ${i + 1}`} (attempt ${attempts}/${state.MAX_ATTEMPTS}): ${e.message.split("\n")[0]}`);
+        const attempts = encounterId
+          ? await state.markFailed(encounterId).catch(() => "?")
+          : "-";
+        console.error(
+          `   ❌ ${dayLabel} ${encounterId ?? `row ${i + 1}`} (attempt ${attempts}/${state.MAX_ATTEMPTS}): ${e.message.split("\n")[0]}`,
+        );
         logDetails(`${dayLabel} ${encounterId ?? `row ${i + 1}`}`, e); // full explanation → log file only
         if (onFailure && !snapshotTaken) await onFailure(e); // one snapshot per day is enough
         snapshotTaken = true;
         // (No Escape here: in GEHRIMed it closes the search window. downloadEncounter
         // closes whatever it opened itself.)
         if (failuresInARow >= MAX_FAILURES_IN_A_ROW) {
-          throw new Error(`${MAX_FAILURES_IN_A_ROW} encounters in a row failed for ${dayLabel} — stopping this day (something is wrong, not just one note)`);
+          throw new Error(
+            `${MAX_FAILURES_IN_A_ROW} encounters in a row failed for ${dayLabel} — stopping this day (something is wrong, not just one note)`,
+          );
         }
       }
     }
@@ -158,7 +202,11 @@ const publish = async (pdf, dayDir, base) => {
   for (let n = 1; n < 100; n++) {
     const name = `${base}${n > 1 ? `_${n}` : ""}.pdf`;
     try {
-      await fs.copyFile(pdf, path.join(dayDir, name), fsConstants.COPYFILE_EXCL); // fails if it exists
+      await fs.copyFile(
+        pdf,
+        path.join(dayDir, name),
+        fsConstants.COPYFILE_EXCL,
+      ); // fails if it exists
       return name;
     } catch (e) {
       if (e.code === "EEXIST") continue;

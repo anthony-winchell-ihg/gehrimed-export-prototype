@@ -18,7 +18,9 @@ export const decryptPdf = async (input, output, password) => {
   try {
     muhammara.recrypt(input, output, { password });
   } catch {
-    throw new Error("Could not remove the PDF password (wrong password or unsupported PDF)");
+    throw new Error(
+      "Could not remove the PDF password (wrong password or unsupported PDF)",
+    );
   }
   if (await isEncryptedPdf(output)) {
     throw new Error("PDF is still encrypted after decryption");
@@ -27,7 +29,11 @@ export const decryptPdf = async (input, output, password) => {
 
 /** Test helper: writes a password-protected copy of `input` to `output`. */
 export const encryptPdf = (input, output, password) =>
-  muhammara.recrypt(input, output, { userPassword: password, ownerPassword: password, userProtectionFlag: 4 });
+  muhammara.recrypt(input, output, {
+    userPassword: password,
+    ownerPassword: password,
+    userProtectionFlag: 4,
+  });
 
 /** Test helper: writes a minimal one-page PDF. */
 export const writeBlankPdf = (file) => {

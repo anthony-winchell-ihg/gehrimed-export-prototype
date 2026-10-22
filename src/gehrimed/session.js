@@ -27,9 +27,14 @@ const credentials = () => {
  * Opens a browser at GEHRIMed and logs in.
  * @returns {{ browser, context, page }}
  */
-export const openGehrimed = async ({ headless = false, loginTimeoutMs = 5 * 60_000 } = {}) => {
+export const openGehrimed = async ({
+  headless = false,
+  loginTimeoutMs = 5 * 60_000,
+} = {}) => {
   if (headless && !credentials()) {
-    throw new Error("Running headless needs GEHRIMED_USERNAME and GEHRIMED_PASSWORD in .env (no one can log in by hand)");
+    throw new Error(
+      "Running headless needs GEHRIMED_USERNAME and GEHRIMED_PASSWORD in .env (no one can log in by hand)",
+    );
   }
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
@@ -54,13 +59,22 @@ export const openGehrimed = async ({ headless = false, loginTimeoutMs = 5 * 60_0
  * again if the session has expired. Watch mode calls this before every check,
  * which also clears any dialogs left open by the previous check.
  */
-export const goToDashboard = async (page, { loginTimeoutMs = 5 * 60_000 } = {}) => {
+export const goToDashboard = async (
+  page,
+  { loginTimeoutMs = 5 * 60_000 } = {},
+) => {
   await loadGehrimed(page);
 
   const creds = credentials();
   const outcome = await Promise.race([
-    findVisible(page, dashboardMenu, "the GEHRIMed dashboard", { timeout: 60_000 }).then(() => "dashboard"),
-    page.locator("#userName, #okta-signin-password").first().waitFor({ timeout: 60_000 }).then(() => "login"),
+    findVisible(page, dashboardMenu, "the GEHRIMed dashboard", {
+      timeout: 60_000,
+    }).then(() => "dashboard"),
+    page
+      .locator("#userName, #okta-signin-password")
+      .first()
+      .waitFor({ timeout: 60_000 })
+      .then(() => "login"),
   ]).catch(() => "unknown");
 
   if (outcome === "dashboard") return;
@@ -68,7 +82,9 @@ export const goToDashboard = async (page, { loginTimeoutMs = 5 * 60_000 } = {}) 
   if (creds) {
     await autoLogin(page, creds.username, creds.password);
   } else {
-    console.log("👉 Log in to GEHRIMed in the browser window. Waiting up to 5 minutes...");
+    console.log(
+      "👉 Log in to GEHRIMed in the browser window. Waiting up to 5 minutes...",
+    );
   }
   await findVisible(page, dashboardMenu, "the GEHRIMed dashboard", {
     timeout: creds ? 90_000 : loginTimeoutMs,
@@ -87,19 +103,25 @@ const loadGehrimed = async (page) => {
   // Brief network drops (after sleep, Wi-Fi/VPN reconnecting) show up as
   // net::ERR_NAME_NOT_RESOLVED, ERR_INTERNET_DISCONNECTED, ERR_NETWORK_CHANGED…
   // (seen 2026-10-20). Wait and retry those instead of failing the whole check.
-  const NETWORK = /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|CONNECTION_\w+|ADDRESS_UNREACHABLE|TIMED_OUT|NETWORK_IO_SUSPENDED)/;
+  const NETWORK =
+    /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|CONNECTION_\w+|ADDRESS_UNREACHABLE|TIMED_OUT|NETWORK_IO_SUSPENDED)/;
   const networkWaits = [5_000, 15_000, 30_000];
   let networkTries = 0;
   let slowTries = 0;
   for (;;) {
     try {
-      await page.goto(GEHRIMED_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.goto(GEHRIMED_URL, {
+        waitUntil: "domcontentloaded",
+        timeout: 60_000,
+      });
       return;
     } catch (e) {
       const network = e.message.match(NETWORK);
       if (network && networkTries < networkWaits.length) {
         const wait = networkWaits[networkTries++];
-        step(`network problem (${network[0].replace("net::", "")}) — trying again in ${wait / 1000}s`);
+        step(
+          `network problem (${network[0].replace("net::", "")}) — trying again in ${wait / 1000}s`,
+        );
         await page.waitForTimeout(wait);
         continue;
       }
@@ -107,7 +129,10 @@ const loadGehrimed = async (page) => {
         step("GEHRIMed is slow to load — trying again");
         continue;
       }
-      if (network) throw new Error(`Can't reach GEHRIMed — network problem (${network[0].replace("net::", "")}) for over a minute`);
+      if (network)
+        throw new Error(
+          `Can't reach GEHRIMed — network problem (${network[0].replace("net::", "")}) for over a minute`,
+        );
       throw e;
     }
   }
@@ -130,7 +155,8 @@ const autoLogin = async (page, username, password) => {
   await passwordBox.waitFor({ timeout: 60_000 });
 
   const oktaUser = page.locator("#okta-signin-username");
-  if ((await oktaUser.inputValue().catch(() => "")) !== username) await oktaUser.fill(username);
+  if ((await oktaUser.inputValue().catch(() => "")) !== username)
+    await oktaUser.fill(username);
 
   step("entering password");
   await passwordBox.fill(password);
@@ -139,22 +165,38 @@ const autoLogin = async (page, username, password) => {
   // 3. Either we land on the dashboard, or Okta shows an error / extra verification.
   step("waiting for GEHRIMed to open");
   const errorBox = page
-    .locator(".o-form-error-container, .okta-form-infobox-error, .o-form-input-error")
+    .locator(
+      ".o-form-error-container, .okta-form-infobox-error, .o-form-input-error",
+    )
     .filter({ hasText: /\S/ })
     .first();
   const outcome = await Promise.race([
-    findVisible(page, dashboardMenu, "the GEHRIMed dashboard", { timeout: 90_000 }).then(() => "ok"),
+    findVisible(page, dashboardMenu, "the GEHRIMed dashboard", {
+      timeout: 90_000,
+    }).then(() => "ok"),
     errorBox.waitFor({ timeout: 90_000 }).then(() => "error"),
-    page.locator("[data-se*='factor'], .mfa-verify, .authenticator-verify-list, [data-se='o-form-head']")
-      .filter({ hasText: /verify|verification|factor|code/i }).first().waitFor({ timeout: 90_000 }).then(() => "mfa"),
+    page
+      .locator(
+        "[data-se*='factor'], .mfa-verify, .authenticator-verify-list, [data-se='o-form-head']",
+      )
+      .filter({ hasText: /verify|verification|factor|code/i })
+      .first()
+      .waitFor({ timeout: 90_000 })
+      .then(() => "mfa"),
   ]).catch(() => "timeout");
 
   if (outcome === "error") {
-    const msg = (await errorBox.innerText().catch(() => "")).trim().slice(0, 120);
-    throw new Error(`Netsmart sign-in failed: ${msg || "check GEHRIMED_USERNAME / GEHRIMED_PASSWORD"}`);
+    const msg = (await errorBox.innerText().catch(() => ""))
+      .trim()
+      .slice(0, 120);
+    throw new Error(
+      `Netsmart sign-in failed: ${msg || "check GEHRIMED_USERNAME / GEHRIMED_PASSWORD"}`,
+    );
   }
   if (outcome === "mfa") {
-    throw new Error("Netsmart is asking for extra verification (MFA). Run once without --headless and log in by hand, or ask IT about this account's sign-in policy.");
+    throw new Error(
+      "Netsmart is asking for extra verification (MFA). Run once without --headless and log in by hand, or ask IT about this account's sign-in policy.",
+    );
   }
   if (outcome === "timeout") {
     throw new Error("Logged in, but the GEHRIMed dashboard never appeared");

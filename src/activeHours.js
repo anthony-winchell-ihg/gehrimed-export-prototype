@@ -8,13 +8,15 @@ const DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]; // Luxon we
 
 const parseTime = (s, what) => {
   const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
-  if (!m || Number(m[1]) > 24 || Number(m[2]) > 59) throw new Error(`ACTIVE_HOURS: bad ${what} time "${s}" (use HH:mm)`);
+  if (!m || Number(m[1]) > 24 || Number(m[2]) > 59)
+    throw new Error(`ACTIVE_HOURS: bad ${what} time "${s}" (use HH:mm)`);
   return Number(m[1]) * 60 + Number(m[2]);
 };
 
 const parseDay = (s) => {
   const i = DAY_NAMES.indexOf(s.trim().toLowerCase().slice(0, 3));
-  if (i < 0) throw new Error(`ACTIVE_DAYS: unknown day "${s}" (use mon, tue, … sun)`);
+  if (i < 0)
+    throw new Error(`ACTIVE_DAYS: unknown day "${s}" (use mon, tue, … sun)`);
   return i + 1;
 };
 
@@ -31,10 +33,12 @@ export const parseActiveHours = (hours = "07:30-17:00", days = "mon-fri") => {
   let end = 24 * 60;
   if (hours.trim().toLowerCase() !== "always") {
     const [from, to, extra] = hours.split("-");
-    if (to === undefined || extra !== undefined) throw new Error(`ACTIVE_HOURS: "${hours}" should look like 07:30-17:00`);
+    if (to === undefined || extra !== undefined)
+      throw new Error(`ACTIVE_HOURS: "${hours}" should look like 07:30-17:00`);
     start = parseTime(from, "start");
     end = parseTime(to, "end");
-    if (end <= start) throw new Error(`ACTIVE_HOURS: end must be after start in "${hours}"`);
+    if (end <= start)
+      throw new Error(`ACTIVE_HOURS: end must be after start in "${hours}"`);
   }
 
   const set = new Set();
@@ -44,10 +48,11 @@ export const parseActiveHours = (hours = "07:30-17:00", days = "mon-fri") => {
     for (const part of days.split(",")) {
       const [a, b] = part.split("-");
       if (b === undefined) set.add(parseDay(a));
-      else for (let d = parseDay(a), last = parseDay(b); ; d = (d % 7) + 1) {
-        set.add(d);
-        if (d === last) break;
-      }
+      else
+        for (let d = parseDay(a), last = parseDay(b); ; d = (d % 7) + 1) {
+          set.add(d);
+          if (d === last) break;
+        }
     }
   }
   return { start, end, days: set };
@@ -58,7 +63,11 @@ export const isActive = (now, schedule) => {
   if (!schedule) return true;
   const t = now.setZone(BILLING_ZONE);
   const minutes = t.hour * 60 + t.minute;
-  return schedule.days.has(t.weekday) && minutes >= schedule.start && minutes < schedule.end;
+  return (
+    schedule.days.has(t.weekday) &&
+    minutes >= schedule.start &&
+    minutes < schedule.end
+  );
 };
 
 /** The next moment the active hours begin (or `now` if they already have). */
@@ -68,7 +77,10 @@ export const nextActiveStart = (now, schedule) => {
   for (let i = 0; i <= 7; i++) {
     const day = t.startOf("day").plus({ days: i });
     // set(), not plus(minutes): on a daylight-saving day, plus() would be an hour off.
-    const start = day.set({ hour: Math.floor(schedule.start / 60), minute: schedule.start % 60 });
+    const start = day.set({
+      hour: Math.floor(schedule.start / 60),
+      minute: schedule.start % 60,
+    });
     if (schedule.days.has(day.weekday) && start > t) return start;
   }
   throw new Error("ACTIVE_DAYS has no days in it");
@@ -77,6 +89,10 @@ export const nextActiveStart = (now, schedule) => {
 /** "07:30-17:00 mon,tue,wed,thu,fri" for the startup message. */
 export const describeActiveHours = (schedule) => {
   if (!schedule) return "always";
-  const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-  return `${hm(schedule.start)}–${hm(schedule.end)} ${[...schedule.days].sort().map((d) => DAY_NAMES[d - 1]).join(",")}`;
+  const hm = (m) =>
+    `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  return `${hm(schedule.start)}–${hm(schedule.end)} ${[...schedule.days]
+    .sort()
+    .map((d) => DAY_NAMES[d - 1])
+    .join(",")}`;
 };

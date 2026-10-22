@@ -20,11 +20,23 @@ let writeToFileOnly = () => {}; // set by startFileLogging
 export const logDetails = (label, error) => {
   // The message (for Playwright: which element, and why it couldn't be used),
   // then a few "at ..." lines showing where in our code it happened.
-  const where = error instanceof Error && error.stack
-    ? error.stack.split("\n").filter((l) => /^\s+at /.test(l)).slice(0, 4)
-    : [];
-  const text = [error instanceof Error ? error.message : String(error), ...where].join("\n");
-  writeToFileOnly(`   ↳ details for ${label}:\n${text.split("\n").map((l) => `      ${l}`).join("\n")}`);
+  const where =
+    error instanceof Error && error.stack
+      ? error.stack
+          .split("\n")
+          .filter((l) => /^\s+at /.test(l))
+          .slice(0, 4)
+      : [];
+  const text = [
+    error instanceof Error ? error.message : String(error),
+    ...where,
+  ].join("\n");
+  writeToFileOnly(
+    `   ↳ details for ${label}:\n${text
+      .split("\n")
+      .map((l) => `      ${l}`)
+      .join("\n")}`,
+  );
 };
 
 /**
@@ -51,7 +63,13 @@ export const startFileLogging = (logDir, name) => {
 
   const write = (level, args) => {
     const text = args
-      .map((a) => (a instanceof Error ? a.stack || a.message : typeof a === "string" ? a : JSON.stringify(a)))
+      .map((a) =>
+        a instanceof Error
+          ? a.stack || a.message
+          : typeof a === "string"
+            ? a
+            : JSON.stringify(a),
+      )
       .join(" ");
     const ts = DateTime.now().setZone(ZONE).toFormat("yyyy-MM-dd HH:mm:ss");
     const tag = level === "log" ? "" : ` ${level.toUpperCase()}`;
@@ -84,7 +102,10 @@ export const startFileLogging = (logDir, name) => {
     setTimeout(() => process.exit(1), 2_000).unref();
   };
   process.on("uncaughtException", crash("Crashed"));
-  process.on("unhandledRejection", crash("Crashed (unhandled promise rejection)"));
+  process.on(
+    "unhandledRejection",
+    crash("Crashed (unhandled promise rejection)"),
+  );
 
   return { file: () => currentFile ?? streamForToday().path };
 };

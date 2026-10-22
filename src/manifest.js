@@ -25,12 +25,18 @@ export const sha256File = (file) =>
 export const appendManifest = async (file, entries) => {
   if (!entries.length) return;
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.appendFile(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+  await fs.appendFile(
+    file,
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    "utf8",
+  );
 };
 
 /** All manifest lines (skips a damaged line rather than failing). */
 export const readManifest = async (file) => {
-  const text = await fs.readFile(file, "utf8").catch((e) => (e.code === "ENOENT" ? "" : Promise.reject(e)));
+  const text = await fs
+    .readFile(file, "utf8")
+    .catch((e) => (e.code === "ENOENT" ? "" : Promise.reject(e)));
   return text
     .split(/\r?\n/)
     .filter(Boolean)

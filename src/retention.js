@@ -22,7 +22,9 @@ const DATE_FOLDER = /^\d{4}-\d{2}-\d{2}$/;
  */
 export const deleteOldDayFolders = async (outputDir, today, days) => {
   const cutoff = today.startOf("day").minus({ days }); // folders on or before this date go
-  const entries = await fs.readdir(outputDir, { withFileTypes: true }).catch(() => []);
+  const entries = await fs
+    .readdir(outputDir, { withFileTypes: true })
+    .catch(() => []);
   const deleted = [];
   for (const e of entries) {
     if (!e.isDirectory() || !DATE_FOLDER.test(e.name)) continue;
@@ -41,12 +43,19 @@ export const deleteOldDayFolders = async (outputDir, today, days) => {
  * prefixes and that are older than `maxAgeHours` are touched.
  * @returns {Promise<number>} how many were removed
  */
-export const deleteStaleTempFolders = async (tmpDir, maxAgeHours = 6, now = Date.now()) => {
+export const deleteStaleTempFolders = async (
+  tmpDir,
+  maxAgeHours = 6,
+  now = Date.now(),
+) => {
   const PREFIXES = ["gehrimed-export-", "playwright-artifacts-"];
-  const entries = await fs.readdir(tmpDir, { withFileTypes: true }).catch(() => []);
+  const entries = await fs
+    .readdir(tmpDir, { withFileTypes: true })
+    .catch(() => []);
   let count = 0;
   for (const e of entries) {
-    if (!e.isDirectory() || !PREFIXES.some((p) => e.name.startsWith(p))) continue;
+    if (!e.isDirectory() || !PREFIXES.some((p) => e.name.startsWith(p)))
+      continue;
     const dir = path.join(tmpDir, e.name);
     const { mtimeMs } = await fs.stat(dir).catch(() => ({ mtimeMs: now }));
     if (now - mtimeMs < maxAgeHours * 60 * 60_000) continue; // may be in use right now
@@ -58,7 +67,9 @@ export const deleteStaleTempFolders = async (tmpDir, maxAgeHours = 6, now = Date
 
 /** Deletes files in `dir` last modified more than `days` days ago. Returns how many. */
 export const deleteOldFiles = async (dir, days, now = Date.now()) => {
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const entries = await fs
+    .readdir(dir, { withFileTypes: true })
+    .catch(() => []);
   let count = 0;
   for (const e of entries) {
     if (!e.isFile()) continue;

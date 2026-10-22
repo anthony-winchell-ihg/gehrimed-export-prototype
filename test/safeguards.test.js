@@ -46,11 +46,22 @@ describe("safeguards", { timeout: 300_000 }, () => {
   it("refuses to save a PDF when the download prompt is for a different encounter", async () => {
     const t = await setup({ wrongPromptFor: "900000001" });
     try {
-      const { code, out } = await runNode("run.js", t.env, ["--headless", "--date", "2026-10-18", "--limit", "0"]);
+      const { code, out } = await runNode("run.js", t.env, [
+        "--headless",
+        "--date",
+        "2026-10-18",
+        "--limit",
+        "0",
+      ]);
       assert.equal(code, 1, out);
-      assert.match(out, /Download prompt is for encounter 999999999, not 900000001 — stopped to avoid a misnamed file/);
+      assert.match(
+        out,
+        /Download prompt is for encounter 999999999, not 900000001 — stopped to avoid a misnamed file/,
+      );
       assert.equal(t.mock.state.downloads, 0, "nothing was downloaded");
-      const files = await fs.readdir(path.join(t.env.OUTPUT_DIR, "2026-10-18")).catch(() => []);
+      const files = await fs
+        .readdir(path.join(t.env.OUTPUT_DIR, "2026-10-18"))
+        .catch(() => []);
       assert.deepEqual(files, []);
     } finally {
       await t.close();
@@ -63,8 +74,15 @@ describe("safeguards", { timeout: 300_000 }, () => {
       // Pretend this test process is a running export holding the lock.
       const lockFile = path.join(path.dirname(t.env.STATE_FILE), "export.lock");
       await fs.mkdir(path.dirname(lockFile), { recursive: true });
-      await fs.writeFile(lockFile, JSON.stringify({ pid: process.pid, label: "watch", since: "earlier" }));
-      const { code, out } = await runNode("run.js", t.env, ["--headless", "--date", "2026-10-18"]);
+      await fs.writeFile(
+        lockFile,
+        JSON.stringify({ pid: process.pid, label: "watch", since: "earlier" }),
+      );
+      const { code, out } = await runNode("run.js", t.env, [
+        "--headless",
+        "--date",
+        "2026-10-18",
+      ]);
       assert.equal(code, 3, out);
       assert.match(out, /Another export is already running \(watch/);
       assert.equal(t.mock.state.logins, 0, "didn't even log in");
@@ -78,8 +96,15 @@ describe("safeguards", { timeout: 300_000 }, () => {
     try {
       const lockFile = path.join(path.dirname(t.env.STATE_FILE), "export.lock");
       await fs.mkdir(path.dirname(lockFile), { recursive: true });
-      await fs.writeFile(lockFile, JSON.stringify({ pid: 999_999_99, label: "watch", since: "a crash" }));
-      const { code, out } = await runNode("run.js", t.env, ["--headless", "--date", "2026-10-18"]);
+      await fs.writeFile(
+        lockFile,
+        JSON.stringify({ pid: 999_999_99, label: "watch", since: "a crash" }),
+      );
+      const { code, out } = await runNode("run.js", t.env, [
+        "--headless",
+        "--date",
+        "2026-10-18",
+      ]);
       assert.equal(code, 0, out);
     } finally {
       await t.close();
@@ -89,7 +114,11 @@ describe("safeguards", { timeout: 300_000 }, () => {
   it("after a failed sign-in, watch mode stops logging in (so the account isn't locked)", async () => {
     const t = await setup({}, { GEHRIMED_PASSWORD: "Wrong#Pass1" });
     try {
-      const { out } = await runNode("watch.js", t.env, ["--once", "--today", "2026-10-13"]);
+      const { out } = await runNode("watch.js", t.env, [
+        "--once",
+        "--today",
+        "2026-10-13",
+      ]);
       assert.match(out, /Netsmart sign-in failed: Unable to sign in/);
       assert.match(out, /Sign-in problem — stopping automatic logins/);
       assert.equal(t.mock.state.failedLogins, 1, "tried exactly once");
@@ -103,13 +132,30 @@ describe("safeguards", { timeout: 300_000 }, () => {
     const t = await setup();
     try {
       await fs.mkdir(path.dirname(t.env.STATE_FILE), { recursive: true });
-      await fs.writeFile(t.env.STATE_FILE, JSON.stringify({ version: 1, exported: {}, failures: {}, lastCompletedDay: "2026-10-10" }));
-      const { code, out } = await runNode("watch.js", t.env, ["--once", "--today", "2026-10-13"]);
+      await fs.writeFile(
+        t.env.STATE_FILE,
+        JSON.stringify({
+          version: 1,
+          exported: {},
+          failures: {},
+          lastCompletedDay: "2026-10-10",
+        }),
+      );
+      const { code, out } = await runNode("watch.js", t.env, [
+        "--once",
+        "--today",
+        "2026-10-13",
+      ]);
       assert.equal(code, 0, out);
       assert.match(out, /Catching up on 4 days \(2026-10-10 → today\)/);
-      for (const d of ["2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13"]) assert.match(out, new RegExp(`${d}: \\d+ signed`));
+      for (const d of ["2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13"])
+        assert.match(out, new RegExp(`${d}: \\d+ signed`));
       const state = JSON.parse(await fs.readFile(t.env.STATE_FILE, "utf8"));
-      assert.equal(state.lastCompletedDay, "2026-10-12", "everything before today is now marked done");
+      assert.equal(
+        state.lastCompletedDay,
+        "2026-10-12",
+        "everything before today is now marked done",
+      );
     } finally {
       await t.close();
     }

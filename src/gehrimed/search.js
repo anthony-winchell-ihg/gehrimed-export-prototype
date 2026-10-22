@@ -49,14 +49,20 @@ export const searchSignedOn = async (page, date) => {
 
     const found = criteria.map((c) => `"${c}"`).join(", ") || "(none)";
     if (attempt >= 3) {
-      throw new Error(`Search criteria are wrong — expected only "${wanted}" but found: ${found}`);
+      throw new Error(
+        `Search criteria are wrong — expected only "${wanted}" but found: ${found}`,
+      );
     }
-    step(`old search criteria came back (${found}) — removing all and adding ${date.toFormat("MM/dd/yyyy")} again`);
+    step(
+      `old search criteria came back (${found}) — removing all and adding ${date.toFormat("MM/dd/yyyy")} again`,
+    );
     await removeAllCriteria(page, dialog);
   }
 
   const total = await readResultCount(page, dialog);
-  step(`GEHRIMed found ${total} encounter(s) for ${date.toFormat("MM/dd/yyyy")}`);
+  step(
+    `GEHRIMed found ${total} encounter(s) for ${date.toFormat("MM/dd/yyyy")}`,
+  );
   return total;
 };
 
@@ -70,13 +76,18 @@ const readResultCount = async (page, dialog) => {
   const deadline = Date.now() + 60_000;
   let previous = null;
   for (;;) {
-    const text = (await dialog.innerText().catch(() => "")).replace(/\s+/g, " ");
+    const text = (await dialog.innerText().catch(() => "")).replace(
+      /\s+/g,
+      " ",
+    );
     const m = text.match(/Results:\s*(\d+)/);
     const now = m ? Number(m[1]) : /No encounters found/i.test(text) ? 0 : null;
     if (now !== null && now === previous) return now;
     previous = now;
     if (Date.now() > deadline) {
-      throw new Error('GEHRIMed never showed "Results: N" or "No encounters found" for this search');
+      throw new Error(
+        'GEHRIMed never showed "Results: N" or "No encounters found" for this search',
+      );
     }
     await page.waitForTimeout(750);
   }
@@ -100,8 +111,12 @@ const openAdvancedSearch = async (page) => {
   await waitForIdle(page);
   // Give a restored window up to 3 s to appear before deciding.
   const which = await Promise.race([
-    findVisible(page, advanced, "the Advanced Search window", { timeout: 3_000 }).then(() => "advanced"),
-    findVisible(page, simple, "the Search window", { timeout: 3_000 }).then(() => "simple"),
+    findVisible(page, advanced, "the Advanced Search window", {
+      timeout: 3_000,
+    }).then(() => "advanced"),
+    findVisible(page, simple, "the Search window", { timeout: 3_000 }).then(
+      () => "simple",
+    ),
   ]).catch(() => "none");
   await waitForIdle(page);
 
@@ -117,21 +132,39 @@ const openAdvancedSearch = async (page) => {
       } catch (e) {
         // A window restored late may now be covering the menu — that's fine if
         // it's one of the search windows.
-        const appeared = await findVisible(page, (f) => advanced(f).or(simple(f)), "a search window", { timeout: 2_000 })
-          .then(() => true, () => false);
+        const appeared = await findVisible(
+          page,
+          (f) => advanced(f).or(simple(f)),
+          "a search window",
+          { timeout: 2_000 },
+        ).then(
+          () => true,
+          () => false,
+        );
         if (!appeared) throw e;
         step("a search window opened on its own — using it");
       }
       await waitForIdle(page);
-      if (await findVisible(page, advanced, "the Advanced Search window", { timeout: 1_000 }).then(() => true, () => false)) {
-        return findVisible(page, advanced, "the Advanced Search window", { timeout: 5_000 });
+      if (
+        await findVisible(page, advanced, "the Advanced Search window", {
+          timeout: 1_000,
+        }).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        return findVisible(page, advanced, "the Advanced Search window", {
+          timeout: 5_000,
+        });
       }
     }
     step("opening Advanced Search");
     await clickButton(page, "Advanced Search");
     await waitForIdle(page);
   }
-  return findVisible(page, advanced, "the Advanced Search window", { timeout: 30_000 });
+  return findVisible(page, advanced, "the Advanced Search window", {
+    timeout: 30_000,
+  });
 };
 
 /** Encounter → Date of Signature → <date> → Add. */
@@ -141,12 +174,18 @@ const addDateCriterion = async (page, dialog, date) => {
   await pickFromDropdown(dialog, 1, "Date of Signature");
 
   step(`entering ${date.toFormat("MM/dd/yyyy")} and adding the criterion`);
-  const addButton = await findClickable(page, (f) => control(f.locator("#search-dialog"), "Add"), '"Add"');
+  const addButton = await findClickable(
+    page,
+    (f) => control(f.locator("#search-dialog"), "Add"),
+    '"Add"',
+  );
   // Real value box: <input id="SearchValue">. GEHRIMed switches it from a text
   // box to a date box a moment AFTER "Date of Signature" shows in the dropdown —
   // so wait for that switch before typing, or the date goes in the wrong format.
   const byId = dialog.locator("#SearchValue");
-  const valueBox = (await byId.count()) ? byId : addButton.locator("xpath=preceding::input[not(@type='hidden')][1]");
+  const valueBox = (await byId.count())
+    ? byId
+    : addButton.locator("xpath=preceding::input[not(@type='hidden')][1]");
   await waitForDateBox(page, valueBox);
   await fillDate(valueBox, date);
   await addButton.click();
@@ -161,12 +200,26 @@ const addDateCriterion = async (page, dialog, date) => {
  * plus a remove (×) button.
  */
 export const readCriteria = async (dialog) => {
-  const pills = dialog.locator(".btn-group.print button.manual-print").locator("visible=true");
+  const pills = dialog
+    .locator(".btn-group.print button.manual-print")
+    .locator("visible=true");
   const out = [];
   for (let i = 0, n = await pills.count(); i < n; i++) {
     const pill = pills.nth(i);
-    const field = (await pill.locator("strong").first().innerText().catch(() => "")).trim();
-    const value = (await pill.locator("em").first().innerText().catch(() => "")).trim();
+    const field = (
+      await pill
+        .locator("strong")
+        .first()
+        .innerText()
+        .catch(() => "")
+    ).trim();
+    const value = (
+      await pill
+        .locator("em")
+        .first()
+        .innerText()
+        .catch(() => "")
+    ).trim();
     out.push(`${field} is ${value}`);
   }
   return out;
@@ -174,7 +227,10 @@ export const readCriteria = async (dialog) => {
 
 /** Clicks "Remove All Search Criteria" and waits until the list is empty. */
 const removeAllCriteria = async (page, dialog) => {
-  const removeAll = dialog.locator(".remove-all-criteria").locator("visible=true").first();
+  const removeAll = dialog
+    .locator(".remove-all-criteria")
+    .locator("visible=true")
+    .first();
   await removeAll.click({ timeout: 10_000 });
   await waitForIdle(page);
   for (let waited = 0; waited < 5_000; waited += 250) {
@@ -187,7 +243,9 @@ const removeAllCriteria = async (page, dialog) => {
     }
     await page.waitForTimeout(250);
   }
-  throw new Error(`"Remove All Search Criteria" left: ${(await readCriteria(dialog)).join("; ")}`);
+  throw new Error(
+    `"Remove All Search Criteria" left: ${(await readCriteria(dialog)).join("; ")}`,
+  );
 };
 
 /**
@@ -196,8 +254,11 @@ const removeAllCriteria = async (page, dialog) => {
  * "Encounter" instead of "Patient".
  */
 const pickFromDropdown = async (dialog, index, label) => {
-  const toggle = dialog.locator("a.dropdown-toggle, button.dropdown-toggle").nth(index);
-  const shown = async () => ((await toggle.innerText().catch(() => "")) || "").trim();
+  const toggle = dialog
+    .locator("a.dropdown-toggle, button.dropdown-toggle")
+    .nth(index);
+  const shown = async () =>
+    ((await toggle.innerText().catch(() => "")) || "").trim();
   if ((await shown()) === label) return; // already set
 
   const item = toggle
@@ -233,12 +294,16 @@ const pickFromDropdown = async (dialog, index, label) => {
       // Clicked, but the label didn't change: trigger the link's handler directly.
       await item.evaluate((el) => el.click());
       if (await labelChanged(3_000)) return;
-      lastError = new Error(`Dropdown ${index + 1} still shows "${await shown()}" after choosing "${label}"`);
+      lastError = new Error(
+        `Dropdown ${index + 1} still shows "${await shown()}" after choosing "${label}"`,
+      );
     } catch (e) {
       lastError = e; // item went stale or the menu closed under us
     }
     if ((await shown()) === label) return;
-    step(`dropdown ${index + 1} wasn't ready — trying "${label}" again (${attempt}/3)`);
+    step(
+      `dropdown ${index + 1} wasn't ready — trying "${label}" again (${attempt}/3)`,
+    );
     await page.waitForTimeout(1_000); // let GEHRIMed finish rebuilding the menu
   }
   throw lastError;
@@ -257,14 +322,18 @@ export const showAllResults = async (page, total) => {
       .first();
     if (!(await select.count().catch(() => 0))) continue;
 
-    const options = (await select.locator("option").allInnerTexts()).map((t) => Number(t.trim())).filter(Boolean);
+    const options = (await select.locator("option").allInnerTexts())
+      .map((t) => Number(t.trim()))
+      .filter(Boolean);
     const largest = Math.max(...options);
     step(`setting Per Page to ${largest}`);
     await select.selectOption({ label: String(largest) });
     await waitForIdle(page);
     return largest;
   }
-  throw new Error(`GEHRIMed found ${total} results but no "Per Page" selector to show them all`);
+  throw new Error(
+    `GEHRIMed found ${total} results but no "Per Page" selector to show them all`,
+  );
 };
 
 // Waits (up to 5 s) for the value box to become <input type="date">.

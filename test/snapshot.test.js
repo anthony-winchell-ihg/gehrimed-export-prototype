@@ -39,8 +39,14 @@ describe("debug snapshot", { timeout: 60_000 }, () => {
     assert.match(text, /"Search criteria:"/);
 
     // Result rows: structure and button labels only
-    assert.match(text, /\[row 1\] <a class="btn-xs btn btn-default dialog"> "View"/);
-    assert.match(text, /\[row 1\] <span data-bs-toggle="dropdown" class="btn btn-default btn-xs dropdown-toggle"/);
+    assert.match(
+      text,
+      /\[row 1\] <a class="btn-xs btn btn-default dialog"> "View"/,
+    );
+    assert.match(
+      text,
+      /\[row 1\] <span data-bs-toggle="dropdown" class="btn btn-default btn-xs dropdown-toggle"/,
+    );
     assert.match(text, /\[row 1\] <a class="dialog"> "Download"/);
     assert.doesNotMatch(text, /\[row 3\]/); // only first two rows
 

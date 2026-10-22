@@ -34,7 +34,14 @@ export const acquireLock = (lockFile, label) => {
     if (e.code !== "ENOENT" && !(e instanceof SyntaxError)) throw e;
   }
   fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-  fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, label, since: new Date().toISOString() }));
+  fs.writeFileSync(
+    lockFile,
+    JSON.stringify({
+      pid: process.pid,
+      label,
+      since: new Date().toISOString(),
+    }),
+  );
 
   const release = () => {
     try {

@@ -26,7 +26,9 @@ const pollFrames = async (page, timeout, what, test, build) => {
     }
     if (Date.now() > deadline) {
       const details = build ? await describeMatches(page, build) : "";
-      throw new Error(`Timed out after ${timeout / 1000}s waiting for ${what}${details}`);
+      throw new Error(
+        `Timed out after ${timeout / 1000}s waiting for ${what}${details}`,
+      );
     }
     await page.waitForTimeout(250);
   }
@@ -59,7 +61,11 @@ const describeMatches = async (page, build) => {
         .catch(() => null);
       const visible = await m.isVisible().catch(() => false);
       let clickable = false;
-      if (visible) clickable = await m.click({ trial: true, timeout: 500 }).then(() => true, () => false);
+      if (visible)
+        clickable = await m.click({ trial: true, timeout: 500 }).then(
+          () => true,
+          () => false,
+        );
       if (info) {
         found.push(
           `<${info.tag}${info.role ? ` role=${info.role}` : ""}${info.cls ? ` class="${info.cls}"` : ""}> ` +
@@ -67,7 +73,9 @@ const describeMatches = async (page, build) => {
         );
       }
     }
-    lines.push(`  frame ${where}${name}: ${n} match(es)${found.length ? "\n    " + found.join("\n    ") : ""}`);
+    lines.push(
+      `  frame ${where}${name}: ${n} match(es)${found.length ? "\n    " + found.join("\n    ") : ""}`,
+    );
   }
   return `\nWhat each frame contains for that lookup:\n${lines.join("\n")}`;
 };
@@ -151,7 +159,12 @@ const dropdownToggle = (frame, label) =>
     .locator(
       'button, a, [role="button"], .dropdown-toggle, .btn, [data-toggle="dropdown"], [data-bs-toggle="dropdown"]',
     )
-    .filter({ hasText: new RegExp(`^\\s*${escapeRegex(label)}(\\W|toggle dropdown)*$`, "i") });
+    .filter({
+      hasText: new RegExp(
+        `^\\s*${escapeRegex(label)}(\\W|toggle dropdown)*$`,
+        "i",
+      ),
+    });
 
 /**
  * Click a dropdown menu item. In GEHRIMed each item is <li><a>label</a></li>
@@ -175,11 +188,14 @@ export const waitForIdle = async (page, timeout = 60_000) => {
   for (;;) {
     let busy = false;
     for (const frame of page.frames()) {
-      const overlay = frame.getByText("Please wait, loading...").locator("visible=true");
+      const overlay = frame
+        .getByText("Please wait, loading...")
+        .locator("visible=true");
       if ((await overlay.count().catch(() => 0)) > 0) busy = true;
     }
     if (!busy) return;
-    if (Date.now() > deadline) throw new Error("GEHRIMed stayed on 'Please wait, loading...'");
+    if (Date.now() > deadline)
+      throw new Error("GEHRIMed stayed on 'Please wait, loading...'");
     await page.waitForTimeout(250);
   }
 };

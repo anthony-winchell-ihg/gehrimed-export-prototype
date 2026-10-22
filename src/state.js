@@ -11,7 +11,8 @@ export const loadState = async (file) => {
   try {
     data = { ...data, ...JSON.parse(await fs.readFile(file, "utf8")) };
   } catch (e) {
-    if (e.code !== "ENOENT") throw new Error(`Could not read ${file}: ${e.message}`);
+    if (e.code !== "ENOENT")
+      throw new Error(`Could not read ${file}: ${e.message}`);
   }
 
   const save = async () => {
@@ -36,7 +37,8 @@ export const loadState = async (file) => {
       return data.failures[encounterId];
     },
     /** After MAX_ATTEMPTS failures an encounter is skipped until someone looks at it. */
-    hasGivenUp: (encounterId) => (data.failures[encounterId] ?? 0) >= MAX_ATTEMPTS,
+    hasGivenUp: (encounterId) =>
+      (data.failures[encounterId] ?? 0) >= MAX_ATTEMPTS,
     exportedCount: () => Object.keys(data.exported).length,
     /** The last signature date that was fully checked (yyyy-MM-dd), or null. */
     lastCompletedDay: () => data.lastCompletedDay ?? null,

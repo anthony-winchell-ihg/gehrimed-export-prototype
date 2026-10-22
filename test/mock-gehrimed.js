@@ -55,7 +55,8 @@ export const expectedNames = (day) => {
   return MOCK_DAYS[day].map((_, i) => {
     const m = mockPatient(i);
     const [dm, dd, dy] = m.dateOfBirth.split("/");
-    const base = `Testlast${LETTERS[i === 4 ? 3 : i].toLowerCase()}Pat${LETTERS[i === 4 ? 3 : i].toLowerCase()}` +
+    const base =
+      `Testlast${LETTERS[i === 4 ? 3 : i].toLowerCase()}Pat${LETTERS[i === 4 ? 3 : i].toLowerCase()}` +
       `_DOB${dm.padStart(2, "0")}.${dd.padStart(2, "0")}.${dy}_DOS10.12.2026`;
     const n = (used.get(base) ?? 0) + 1;
     used.set(base, n);
@@ -74,7 +75,12 @@ const dropdown = (id, label, items) => `
     <ul class="dropdown-menu hidden">${items.map((i) => `<li><a onclick="pick('${id}', this)">${i}</a></li>`).join("")}</ul>
   </div>`;
 
-const appHtml = (days, wrongPromptFor, restoreDelayMs, rowCap) => `<!doctype html><html><head><style>
+const appHtml = (
+  days,
+  wrongPromptFor,
+  restoreDelayMs,
+  rowCap,
+) => `<!doctype html><html><head><style>
   .hidden{display:none}
   .dropdown-menu{list-style:none;margin:0;padding:4px 0;border:1px solid #999;background:#fff;position:absolute;z-index:20}
   .dropdown-menu:not(.hidden){animation:menu-open 300ms ease-out}
@@ -239,14 +245,20 @@ const readForm = (req) =>
   });
 
 /** Fake credentials accepted by the mock's login. */
-export const MOCK_LOGIN = { username: "test.user@example.com", password: "Mock#Pass9" };
+export const MOCK_LOGIN = {
+  username: "test.user@example.com",
+  password: "Mock#Pass9",
+};
 
 const usernamePage = (authUrl) => `<!doctype html><title>GEHRIMED</title>
 <label class="form-label">Username or Email</label>
 <input id="userName" name="username" type="text" class="form-control">
 <button class="btn btn-primary" onclick="location.href='${authUrl}?u=' + encodeURIComponent(document.getElementById('userName').value)">Next</button>`;
 
-const oktaPage = (username, error) => `<!doctype html><title>Netsmart Technologies (Netsmart IAM) - Sign In</title>
+const oktaPage = (
+  username,
+  error,
+) => `<!doctype html><title>Netsmart Technologies (Netsmart IAM) - Sign In</title>
 <form id="form32" class="primary-auth-form o-form" action="/" method="post">
   <h2 class="okta-form-title o-form-head">Sign In</h2>
   <div class="o-form-error-container">${error ? `<p>${error}</p>` : ""}</div>
@@ -256,7 +268,13 @@ const oktaPage = (username, error) => `<!doctype html><title>Netsmart Technologi
 </form>`;
 
 /** @param {{ download?: "pdf" | "zip", requireLogin?: boolean, rowCap?: number }} options */
-export const startMock = async ({ download = "pdf", requireLogin = false, wrongPromptFor = null, restoreDelayMs = 1_200, rowCap = null } = {}) => {
+export const startMock = async ({
+  download = "pdf",
+  requireLogin = false,
+  wrongPromptFor = null,
+  restoreDelayMs = 1_200,
+  rowCap = null,
+} = {}) => {
   // Per-instance copy so tests can add encounters while the mock runs ("newly signed" notes).
   const days = structuredClone(MOCK_DAYS);
   const work = await fs.mkdtemp(path.join(os.tmpdir(), "mock-gehrimed-"));
@@ -270,10 +288,27 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     const locked = path.join(dir, `Note_${id}.pdf`);
     encryptPdf(plain, locked, password);
     await fs.rm(plain);
-    if (download === "pdf") return { body: await fs.readFile(locked), type: "application/pdf", ext: ".pdf" };
+    if (download === "pdf")
+      return {
+        body: await fs.readFile(locked),
+        type: "application/pdf",
+        ext: ".pdf",
+      };
     const zip = path.join(work, `${id}.zip`);
-    await run(sevenBin.path7za, ["a", "-tzip", zip, locked, `-p${password}`, "-mem=AES256", "-y"]);
-    return { body: await fs.readFile(zip), type: "application/zip", ext: ".zip" };
+    await run(sevenBin.path7za, [
+      "a",
+      "-tzip",
+      zip,
+      locked,
+      `-p${password}`,
+      "-mem=AES256",
+      "-y",
+    ]);
+    return {
+      body: await fs.readFile(zip),
+      type: "application/zip",
+      ext: ".zip",
+    };
   };
 
   const appServer = http.createServer(async (req, res) => {
@@ -281,16 +316,26 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     if (url.pathname === "/dash") {
       res.writeHead(200, { "content-type": "text/html" }).end(dashHtml);
     } else if (url.pathname === "/app") {
-      res.writeHead(200, { "content-type": "text/html" }).end(appHtml(days, wrongPromptFor, restoreDelayMs, rowCap));
-    } else if (url.pathname === "/Encounter/Download" && req.method === "POST") {
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(appHtml(days, wrongPromptFor, restoreDelayMs, rowCap));
+    } else if (
+      url.pathname === "/Encounter/Download" &&
+      req.method === "POST"
+    ) {
       const form = await readForm(req);
-      const { body, type, ext } = await makeDownload(form.get("EncounterID"), form.get("Password"));
+      const { body, type, ext } = await makeDownload(
+        form.get("EncounterID"),
+        form.get("Password"),
+      );
       state.downloads++;
-      res.writeHead(200, {
-        "content-type": type,
-        // Real GEHRIMed filenames may contain patient names; the script must not rely on this.
-        "content-disposition": `attachment; filename="TESTLAST_TESTFIRST_${form.get("EncounterID")}${ext}"`,
-      }).end(body);
+      res
+        .writeHead(200, {
+          "content-type": type,
+          // Real GEHRIMed filenames may contain patient names; the script must not rely on this.
+          "content-disposition": `attachment; filename="TESTLAST_TESTFIRST_${form.get("EncounterID")}${ext}"`,
+        })
+        .end(body);
     } else if (url.pathname === "/resend") {
       state.resends++;
       res.writeHead(200).end("resent");
@@ -311,16 +356,27 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     const url = new URL(req.url, "http://x");
     if (req.method === "POST") {
       const form = await readForm(req);
-      if (form.get("username") === MOCK_LOGIN.username && form.get("password") === MOCK_LOGIN.password) {
+      if (
+        form.get("username") === MOCK_LOGIN.username &&
+        form.get("password") === MOCK_LOGIN.password
+      ) {
         state.logins++;
-        res.writeHead(302, { "set-cookie": "mock_session=1; Path=/", location: outerUrl }).end();
+        res
+          .writeHead(302, {
+            "set-cookie": "mock_session=1; Path=/",
+            location: outerUrl,
+          })
+          .end();
       } else {
         state.failedLogins++;
-        res.writeHead(200, { "content-type": "text/html" })
+        res
+          .writeHead(200, { "content-type": "text/html" })
           .end(oktaPage(form.get("username") || "", "Unable to sign in"));
       }
     } else {
-      res.writeHead(200, { "content-type": "text/html" }).end(oktaPage(url.searchParams.get("u") || ""));
+      res
+        .writeHead(200, { "content-type": "text/html" })
+        .end(oktaPage(url.searchParams.get("u") || ""));
     }
   });
   await new Promise((r) => authServer.listen(0, "127.0.0.1", r));
@@ -331,17 +387,22 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     // Like the real dashboard: something on the page keeps loading for a long
     // time, so the browser's "load" event comes very late (45 s here).
     if (req.url === "/slow-asset") {
-      const t = setTimeout(() => res.writeHead(200, { "content-type": "image/gif" }).end(), 45_000);
+      const t = setTimeout(
+        () => res.writeHead(200, { "content-type": "image/gif" }).end(),
+        45_000,
+      );
       res.on("close", () => clearTimeout(t));
       return;
     }
     const loggedIn = /(?:^|;\s*)mock_session=1/.test(req.headers.cookie || "");
-    res.writeHead(200, { "content-type": "text/html" }).end(
-      requireLogin && !loggedIn
-        ? usernamePage(authUrl)
-        : `<!doctype html><title>GEHRIMED</title><iframe id="gehrimed-iframe" src="http://127.0.0.1:${appPort}/app" style="width:100%;height:95vh"></iframe>` +
-            `<img src="/slow-asset" style="display:none">`,
-    );
+    res
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        requireLogin && !loggedIn
+          ? usernamePage(authUrl)
+          : `<!doctype html><title>GEHRIMED</title><iframe id="gehrimed-iframe" src="http://127.0.0.1:${appPort}/app" style="width:100%;height:95vh"></iframe>` +
+              `<img src="/slow-asset" style="display:none">`,
+      );
   });
   await new Promise((r) => outerServer.listen(0, "127.0.0.1", r));
   outerUrl = `http://127.0.0.1:${outerServer.address().port}/`;
@@ -352,8 +413,13 @@ export const startMock = async ({ download = "pdf", requireLogin = false, wrongP
     addEncounter: (day, id) => (days[day] ??= []).push(id),
     state,
     close: async () => {
-      for (const s of [appServer, outerServer, authServer]) s.closeAllConnections(); // drop the slow request
-      await Promise.all([appServer, outerServer, authServer].map((s) => new Promise((r) => s.close(r))));
+      for (const s of [appServer, outerServer, authServer])
+        s.closeAllConnections(); // drop the slow request
+      await Promise.all(
+        [appServer, outerServer, authServer].map(
+          (s) => new Promise((r) => s.close(r)),
+        ),
+      );
       await fs.rm(work, { recursive: true, force: true });
     },
   };

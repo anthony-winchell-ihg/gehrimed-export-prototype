@@ -12,7 +12,9 @@ export const BILLING_ZONE = "America/New_York";
  */
 export const getPreviousDayWindow = (now) => {
   if (!DateTime.isDateTime(now) || !now.isValid) {
-    throw new Error("getPreviousDayWindow: `now` must be a valid Luxon DateTime");
+    throw new Error(
+      "getPreviousDayWindow: `now` must be a valid Luxon DateTime",
+    );
   }
 
   const todayStart = now.setZone(BILLING_ZONE).startOf("day");

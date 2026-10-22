@@ -29,9 +29,14 @@ export const isPdf = async (file) => {
  */
 export const extractPdfs = async (download, password, outDir) => {
   await fs.mkdir(outDir, { recursive: true });
-  if (await isPdf(download)) return [await unlockPdf(download, password, outDir)];
+  if (await isPdf(download))
+    return [await unlockPdf(download, password, outDir)];
 
-  const archived = await extractArchivePdfs(download, password, path.join(outDir, "archive"));
+  const archived = await extractArchivePdfs(
+    download,
+    password,
+    path.join(outDir, "archive"),
+  );
   return Promise.all(archived.map((pdf) => unlockPdf(pdf, password, outDir)));
 };
 
@@ -49,7 +54,9 @@ const extractArchivePdfs = async (archive, password, outDir) => {
     await run(SEVEN_ZIP, ["x", archive, `-o${outDir}`, `-p${password}`, "-y"]);
   } catch (e) {
     // Don't echo the command line — it contains the password.
-    throw new Error(`7-Zip could not extract the download (exit ${e.code ?? "?"})`);
+    throw new Error(
+      `7-Zip could not extract the download (exit ${e.code ?? "?"})`,
+    );
   }
 
   const files = await listFiles(outDir);
@@ -76,6 +83,11 @@ export const zipFolder = async (sourceDir, zipPath, password) => {
 };
 
 const listFiles = async (dir) => {
-  const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
-  return entries.filter((e) => e.isFile()).map((e) => path.join(e.parentPath ?? e.path, e.name));
+  const entries = await fs.readdir(dir, {
+    withFileTypes: true,
+    recursive: true,
+  });
+  return entries
+    .filter((e) => e.isFile())
+    .map((e) => path.join(e.parentPath ?? e.path, e.name));
 };
