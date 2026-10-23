@@ -17,6 +17,7 @@
 //   External MRN it stays disabled. Setting the same text again is no change,
 //   so it doesn't search. The first result row is selected automatically.
 //   `searchDelayMs` is how long the fake eCW takes to answer.
+import crypto from "node:crypto";
 import http from "node:http";
 
 /** Made-up patients. Any External MRN not listed here finds nothing. */
@@ -169,6 +170,79 @@ const pageHtml = () => `<!doctype html>
 </script>
 </body></html>`;
 
+// ---------------------------------------------------------------------------
+// Login (mapped on live eCW, 2026-10-23). Three screens at the real addresses:
+//   1. newLogin.jsp — username #doctorID, Next #nextStep (form#loginForm)
+//   2. getPwdPage   — password #passwordField, Log In #Login (posts to
+//      processLoginRequest; the form carries Cloudflare "turnstileResponse" /
+//      "isCaptcha" fields, not active when mapped)
+//   3. OTPVerification.jsp — "eClinicalWorks sent a notification to your
+//      email. Please confirm to login." + Resend OTP #resendOtpBtn. Nothing to
+//      type: the person clicks a link in the email and the page moves on to
+//      index.jsp by itself.
+// Assumption (never tried on live eCW, to avoid locking the account): a wrong
+// password shows the password page again, with an error.
+// ---------------------------------------------------------------------------
+
+/** Made-up credentials the fake accepts. */
+export const MOCK_ECW_LOGIN = { username: "mockuser", password: "mock-password-1" };
+
+const PATHS = {
+  home: "/mobiledoc/jsp/webemr/index.jsp",
+  login: "/mobiledoc/jsp/webemr/login/newLogin.jsp",
+  password: "/mobiledoc/jsp/webemr/login/authenticate/getPwdPage",
+  processLogin: "/mobiledoc/jsp/webemr/login/authenticate/processLoginRequest",
+  otp: "/mobiledoc/jsp/webemr/login/OTPVerification.jsp",
+  otpStatus: "/mock/otp-status", // the fake's stand-in for how the real page learns the email was confirmed
+  resendOtp: "/mock/resend-otp",
+};
+
+const loginPageHtml = () => `<!doctype html>
+<html><head><title>Web EMR Login Page</title></head><body>
+<form id="loginForm" method="post" action="${PATHS.password}">
+  <label for="doctorID">Enter username to continue</label>
+  <input type="text" id="doctorID" name="doctorID" autocomplete="off">
+  <input type="submit" id="nextStep" value="Next">
+</form>
+<button id="btnDownloadPlugin" onclick="downloadStartupexe()">Download Plug-in</button>
+</body></html>`;
+
+const passwordPageHtml = (username, error) => `<!doctype html>
+<html><head><title>Web EMR Login Page</title></head><body>
+<form id="loginForm" method="post" action="${PATHS.processLogin}">
+  <input type="hidden" name="doctorID" value="${escapeHtml(username)}">
+  <input type="hidden" name="turnstileResponse" value="">
+  <input type="hidden" name="isCaptcha" value="">
+  <label for="passwordField">Enter Password to continue</label>
+  <input type="password" id="passwordField" name="passwordField" autocomplete="off">
+  <button type="button">Show</button>
+  <input type="submit" id="Login" value="Log In">
+  ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+</form>
+<a href="${PATHS.login}">Sign in with a different account</a> <a href="#">Forgot password?</a>
+</body></html>`;
+
+const otpPageHtml = () => `<!doctype html>
+<html><head><title>Web EMR OTP Page</title></head><body>
+<p>eClinicalWorks sent a notification to your email. Please confirm to login.</p>
+<button id="resendOtpBtn" onclick="fetch('${PATHS.resendOtp}', { method: 'POST' })">Resend OTP</button>
+<script>
+  // Moves on by itself once the email link has been clicked.
+  setInterval(async () => {
+    const res = await fetch("${PATHS.otpStatus}");
+    if ((await res.json()).confirmed) location.href = "${PATHS.home}";
+  }, 500);
+</script>
+</body></html>`;
+
+const readCookies = (req) =>
+  Object.fromEntries(
+    (req.headers.cookie ?? "")
+      .split(/;\s*/)
+      .filter(Boolean)
+      .map((c) => [c.slice(0, c.indexOf("=")), c.slice(c.indexOf("=") + 1)]),
+  );
+
 const readBody = (req) =>
   new Promise((resolve, reject) => {
     let body = "";
@@ -179,20 +253,72 @@ const readBody = (req) =>
 
 /**
  * Starts the fake eCW on a random free port.
- * @param {{ patients?: object[], searchDelayMs?: number }} [options]
+ * @param {{ patients?: object[], searchDelayMs?: number, requireLogin?: boolean, confirmEmailAfterMs?: number | null }} [options]
  *   searchDelayMs: how long the fake takes to answer a search
+ *   requireLogin: false (default) opens straight on the home screen, for the search tests
+ *   confirmEmailAfterMs: "click" the email link this long after a correct password (null = only via confirmEmail())
  */
 export const startMockEcw = async ({
   patients = MOCK_ECW_PATIENTS,
   searchDelayMs = 300,
+  requireLogin = false,
+  confirmEmailAfterMs = null,
 } = {}) => {
   // What the browser did — tests check these (e.g. deletes must stay 0).
-  const state = { searches: [], deletes: 0 };
+  const state = { searches: [], deletes: 0, logins: 0, failedLogins: 0, emailsSent: 0 };
+  const sessions = new Set(); // logged-in session tokens
+  const waitingForEmail = new Map(); // OTP token → has the email link been clicked?
+
+  const confirmEmail = () => {
+    for (const token of waitingForEmail.keys()) waitingForEmail.set(token, true);
+  };
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
+    const cookies = readCookies(req);
+    const html = (body) => res.writeHead(200, { "content-type": "text/html" }).end(body);
+    const redirect = (to, cookie) =>
+      res.writeHead(302, { location: to, ...(cookie && { "set-cookie": `${cookie}; Path=/` }) }).end();
+
     if (url.pathname === "/") {
-      res.writeHead(200, { "content-type": "text/html" }).end(pageHtml());
+      redirect(PATHS.home);
+    } else if (url.pathname === PATHS.home) {
+      if (requireLogin && !sessions.has(cookies.ecw_session)) redirect(PATHS.login);
+      else html(pageHtml());
+    } else if (url.pathname === PATHS.login) {
+      html(loginPageHtml());
+    } else if (url.pathname === PATHS.password && req.method === "POST") {
+      html(passwordPageHtml(new URLSearchParams(await readBody(req)).get("doctorID") ?? ""));
+    } else if (url.pathname === PATHS.processLogin && req.method === "POST") {
+      const form = new URLSearchParams(await readBody(req));
+      const username = form.get("doctorID") ?? "";
+      if (username === MOCK_ECW_LOGIN.username && form.get("passwordField") === MOCK_ECW_LOGIN.password) {
+        state.logins++;
+        state.emailsSent++;
+        const token = crypto.randomUUID();
+        waitingForEmail.set(token, false);
+        if (confirmEmailAfterMs !== null) setTimeout(confirmEmail, confirmEmailAfterMs);
+        redirect(PATHS.otp, `ecw_otp=${token}`);
+      } else {
+        state.failedLogins++;
+        html(passwordPageHtml(username, "Invalid username or password"));
+      }
+    } else if (url.pathname === PATHS.otp) {
+      if (waitingForEmail.has(cookies.ecw_otp)) html(otpPageHtml());
+      else redirect(PATHS.login);
+    } else if (url.pathname === PATHS.otpStatus) {
+      const confirmed = waitingForEmail.get(cookies.ecw_otp) === true;
+      const headers = { "content-type": "application/json" };
+      if (confirmed) {
+        waitingForEmail.delete(cookies.ecw_otp);
+        const session = crypto.randomUUID();
+        sessions.add(session);
+        headers["set-cookie"] = `ecw_session=${session}; Path=/`;
+      }
+      res.writeHead(200, headers).end(JSON.stringify({ confirmed }));
+    } else if (url.pathname === PATHS.resendOtp && req.method === "POST") {
+      state.emailsSent++;
+      res.writeHead(200).end();
     } else if (url.pathname === "/mobiledoc/jsp/catalog/xml/getPatients.jsp" && req.method === "POST") {
       const form = new URLSearchParams(await readBody(req));
       const by = form.get("SearchBy");
@@ -217,8 +343,15 @@ export const startMockEcw = async ({
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 
   return {
-    url: `http://127.0.0.1:${server.address().port}/`,
+    url: `http://127.0.0.1:${server.address().port}${PATHS.home}`,
     state,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    /** Simulates the person clicking the link in eCW's login email. */
+    confirmEmail,
+    /** Simulates eCW ending every session (timeout): the next page load goes to the login page. */
+    expireSessions: () => sessions.clear(),
+    close: () => {
+      server.closeAllConnections();
+      return new Promise((resolve) => server.close(resolve));
+    },
   };
 };
