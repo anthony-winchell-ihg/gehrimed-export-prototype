@@ -8,13 +8,15 @@
 //   rows are two SEPARATE tables (rows in #rule-table2, matched to headers by
 //   position); name cells carry the name in a tooltip; every row ends with a
 //   "Delete Patient" icon (i.icdelet) that must never be clicked.
-// Seen on live eCW 2026-10-22: searching sends getPatients.jsp (a POST there;
-//   a GET here — only the address is matched), and typing in #searchText also
-//   searches, shortly after the typing stops.
 //
-// Assumptions not yet seen on live eCW (check in step 7):
-//   results arrive a moment after Search (searchDelayMs), and the previous
-//   search's rows stay visible until then.
+// How the search really works (read from eCW's own code, 2026-10-23):
+//   eCW searches BY ITSELF: every change to #searchText that leaves at least
+//   2 characters clears the results at once, then 500 ms later POSTs
+//   getPatients.jsp with the text as `primarySearchValue`. The Search button
+//   is only for the practice's custom "S …" fields; for ordinary types like
+//   External MRN it stays disabled. Setting the same text again is no change,
+//   so it doesn't search. The first result row is selected automatically.
+//   `searchDelayMs` is how long the fake eCW takes to answer.
 import http from "node:http";
 
 /** Made-up patients. Any External MRN not listed here finds nothing. */
@@ -92,7 +94,7 @@ const escapeHtml = (s) =>
       ],
   );
 
-const pageHtml = (searchDelayMs) => `<!doctype html>
+const pageHtml = () => `<!doctype html>
 <html><head><title>eCW (Mock, User)</title>
 <style>.hidden{display:none} .modal{border:1px solid #888;padding:8px;margin:8px} td,th{border:1px solid #ccc;padding:2px 6px}</style>
 </head><body>
@@ -117,7 +119,7 @@ const pageHtml = (searchDelayMs) => `<!doctype html>
         </ul>
       </div>
     </div>
-    <button type="button" id="patientSearchBtn10201" title="ALT + S" onclick="search()">Search</button>
+    <button type="button" id="patientSearchBtn10201" title="ALT + S" disabled onclick="search()">Search</button>
     <button type="button" id="patientSearchBtn10" title="ALT + C" onclick="closeLookup()">Cancel</button>
     <table class="table table-bordered blue-fade-table"><thead><tr>${HEADERS.map((h) => `<th>${h}</th>`).join("")}</tr></thead></table>
     <table class="table table-bordered blue-fade-table" id="rule-table2"><tbody></tbody></table>
@@ -143,27 +145,42 @@ const pageHtml = (searchDelayMs) => `<!doctype html>
       <td class="wd21pr"></td><td class="wd21pr"></td><td class="w14p"></td>
       <td class="w5p"><span class="pull-left bsquare"></span><i class="icon icdelet" title="Delete Patient" onclick="deletePatient()"></i></td>
     </tr>\`;
+  const results = () => $("#rule-table2 tbody");
   const search = async () => {
-    const by = $("#searchBy").textContent;
-    const q = $("#searchText").value;
-    const res = await fetch("/mobiledoc/jsp/catalog/xml/getPatients.jsp?by=" + encodeURIComponent(by) + "&q=" + encodeURIComponent(q));
+    const res = await fetch("/mobiledoc/jsp/catalog/xml/getPatients.jsp", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ SearchBy: $("#searchBy").textContent, primarySearchValue: $("#searchText").value }),
+    });
     const patients = await res.json();
-    // The previous rows stay until the new ones arrive (see the note at the top).
-    setTimeout(() => { $("#rule-table2 tbody").innerHTML = patients.map(row).join(""); }, ${searchDelayMs});
+    results().innerHTML = patients.map(row).join("");
+    results().querySelector("tr")?.classList.add("highlight"); // eCW selects the first result
   };
   const deletePatient = () => fetch("/api/delete-patient", { method: "POST" });
-  // Like real eCW: typing in the box also searches, shortly after the typing stops.
+  // Like real eCW: every change that leaves 2+ characters clears the results,
+  // then searches by itself 500 ms later. (The Search button stays disabled.)
   let typingTimer;
   $("#searchText").addEventListener("input", () => {
+    if ($("#searchText").value.length < 2) return;
+    results().innerHTML = "";
     clearTimeout(typingTimer);
     typingTimer = setTimeout(search, 500);
   });
 </script>
 </body></html>`;
 
+const readBody = (req) =>
+  new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+
 /**
  * Starts the fake eCW on a random free port.
  * @param {{ patients?: object[], searchDelayMs?: number }} [options]
+ *   searchDelayMs: how long the fake takes to answer a search
  */
 export const startMockEcw = async ({
   patients = MOCK_ECW_PATIENTS,
@@ -172,23 +189,20 @@ export const startMockEcw = async ({
   // What the browser did — tests check these (e.g. deletes must stay 0).
   const state = { searches: [], deletes: 0 };
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
     if (url.pathname === "/") {
-      res
-        .writeHead(200, { "content-type": "text/html" })
-        .end(pageHtml(searchDelayMs));
-    } else if (url.pathname === "/mobiledoc/jsp/catalog/xml/getPatients.jsp") {
-      const by = url.searchParams.get("by");
-      const q = (url.searchParams.get("q") ?? "").trim();
+      res.writeHead(200, { "content-type": "text/html" }).end(pageHtml());
+    } else if (url.pathname === "/mobiledoc/jsp/catalog/xml/getPatients.jsp" && req.method === "POST") {
+      const form = new URLSearchParams(await readBody(req));
+      const by = form.get("SearchBy");
+      const q = (form.get("primarySearchValue") ?? "").trim();
       state.searches.push({ by, q });
-      const found =
-        by === "External MRN"
-          ? patients.filter((p) => p.externalMrn === q)
-          : [];
-      res
-        .writeHead(200, { "content-type": "application/json" })
-        .end(JSON.stringify(found));
+      const found = by === "External MRN" ? patients.filter((p) => p.externalMrn === q) : [];
+      setTimeout(
+        () => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(found)),
+        searchDelayMs,
+      );
     } else if (
       url.pathname === "/api/delete-patient" &&
       req.method === "POST"

@@ -8,13 +8,14 @@
 // leaves the previous rows on screen until the new ones are drawn. So it
 // waits for this search's network reply, then for the table to change.
 
-// The request eCW sends to search. eCW also
-// sends it while you type, so fill() puts the WHOLE MRN in at once: any
-// "typing" search is then for the full MRN and gives the same answer as the
-// Search button — never a partial one.
+// How eCW searches (read from its own code, 2026-10-23): every change to the
+// search box that leaves 2+ characters clears the results, then 500 ms later
+// POSTs getPatients.jsp with the text as `primarySearchValue` (a form body).
+// The Search button is only for custom "S …" fields; for External MRN it
+// stays disabled. We wait for the reply whose request carries OUR MRN, so no
+// other search can be mistaken for ours.
 
 export const SEARCH_REQUEST = /\/catalog\/xml\/getPatients\.jsp/;
-
 const LOOKUP = "#pt-lookup-modal-dialog";
 const ROWS = "#rule-table2 tbody tr";
 const RENDER_WAIT_MS = 3_000; // after the reply, how long the table gets to redraw
@@ -121,16 +122,25 @@ export const findByExternalMrn = async (page, externalMrn) => {
 
   const dialog = await openPatientLookup(page);
   await chooseSearchBy(dialog, "External MRN");
-  await dialog.locator("#searchText").fill(mrn);
+
+  // eCW searches by itself 500 ms after the text changes; for ordinary search
+  // types its Search button stays disabled. Setting the same text again is no
+  // change (no search), so empty the box first: too short to search.
+  const box = dialog.locator("#searchText");
+  await box.fill("");
 
   const before = await rowsSignature(dialog);
   await Promise.all([
-    page.waitForResponse((r) => SEARCH_REQUEST.test(r.url()), {
-      timeout: 30_000,
-    }),
-    dialog.getByRole("button", { name: "Search", exact: true }).click(),
+    page.waitForResponse((r) => isSearchFor(r, mrn), { timeout: 30_000 }),
+    box.fill(mrn),
   ]);
-
   await waitForNewResults(dialog, before);
   return readResults(dialog);
 };
+
+/** Is this eCW's reply to a search for 'mrn'? The MRN is in the request's form body. */
+const isSearchFor = (response, mrn) =>
+  SEARCH_REQUEST.test(response.url()) &&
+  new URLSearchParams(response.request().postData() ?? "").get(
+    "primarySearchValue",
+  ) === mrn;

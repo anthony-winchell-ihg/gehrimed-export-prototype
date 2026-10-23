@@ -20,18 +20,29 @@ describe("fake eCW patient lookup", { timeout: 60_000 }, () => {
   const dialog = () => page.locator("#pt-lookup-modal-dialog");
   const rows = () => page.locator("#rule-table2 tbody tr");
 
+  // Like a person would: pick the type, type the MRN, and wait for eCW's own
+  // search (it searches by itself after the text changes; there's no button to press).
   const searchByExternalMrn = async (mrn) => {
     await dialog().locator("#searchBy").click();
     await dialog()
       .locator("#searchByMenu a", { hasText: "External MRN" })
       .click();
-    await dialog().locator("#searchText").fill(mrn);
-    await dialog().getByRole("button", { name: "Search", exact: true }).click();
+    await Promise.all([
+      page.waitForResponse(/getPatients\.jsp/),
+      dialog().locator("#searchText").fill(mrn),
+    ]);
   };
 
   it("opens Patient Lookup from the search icon", async () => {
     await page.locator("a.icon-usersearch").click();
     await dialog().waitFor({ state: "visible" });
+  });
+
+  it("keeps the Search button disabled, like real eCW for ordinary search types", async () => {
+    assert.equal(
+      await dialog().getByRole("button", { name: "Search", exact: true }).isDisabled(),
+      true,
+    );
   });
 
   it("finds one chart for a normal External MRN, with 13 cells like the header", async () => {
@@ -60,9 +71,9 @@ describe("fake eCW patient lookup", { timeout: 60_000 }, () => {
   });
 
   it("recorded every search, and nothing was deleted", () => {
-    // Each search shows up twice (typing + the Search button), so compare the distinct values.
+    // One change to the text = one search.
     assert.deepEqual(
-      [...new Set(mock.state.searches.map((s) => s.q))],
+      mock.state.searches.map((s) => s.q),
       ["GM100001", "GM100002", "GM999999"],
     );
     assert.ok(mock.state.searches.every((s) => s.by === "External MRN"));
