@@ -4,9 +4,9 @@
 // It only READS: it never clicks a result row (every row has a "Delete
 // Patient" icon). It reads cell text only, never tooltips (they hold names).
 //
-// The hard part is knowing the table shows the answer to THIS search: eCW
-// leaves the previous rows on screen until the new ones are drawn. So it
-// waits for this search's network reply, then for the table to change.
+// The hard part is knowing the table shows the answer to THIS search. eCW
+// clears the rows as soon as the text changes and searches by itself, so it
+// waits for the reply to OUR search, then for the table to finish drawing.
 
 // How eCW searches (read from its own code, 2026-10-23): every change to the
 // search box that leaves 2+ characters clears the results, then 500 ms later
@@ -23,14 +23,24 @@ const RENDER_WAIT_MS = 3_000; // after the reply, how long the table gets to red
 const exactly = (text) =>
   new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 
-/** Opens patient Lookup, or reuses it if it's already open. Returns the window */
+/** Opens Patient Lookup, or reuses it if it's already open. Returns the window. */
 export const openPatientLookup = async (page) => {
   const dialog = page.locator(LOOKUP);
-  if (!(await dialog.isVisible())) {
+  // Right after login, eCW shows the search icon a few seconds before it
+  // works (2026-10-23): an early click does nothing. So click, give the window
+  // a few seconds to appear, and click again if it hasn't.
+  for (
+    let attempt = 1;
+    attempt <= 5 && !(await dialog.isVisible());
+    attempt++
+  ) {
     await page.locator("a.icon-usersearch").click();
-    await dialog.waitFor({ state: "visible", timeout: 15_000 });
+    await dialog.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
   }
-
+  if (!(await dialog.isVisible()))
+    throw new Error(
+      "eCW: Patient Lookup didn't open (clicked the search icon 5 times)",
+    );
   return dialog;
 };
 

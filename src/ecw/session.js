@@ -133,6 +133,7 @@ export const ensureLoggedIn = async (
  * @returns {Promise<{ context: import("playwright").BrowserContext, page: import("playwright").Page }>}
  */
 export const openEcw = async ({ profileDir, headless = true }) => {
+  if (!profileDir) throw new Error("openEcw: profileDir is missing");
   const context = await chromium.launchPersistentContext(profileDir, {
     headless,
   });

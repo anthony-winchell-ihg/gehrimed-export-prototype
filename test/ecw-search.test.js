@@ -55,6 +55,18 @@ describe("findByExternalMrn", { timeout: 90_000 }, () => {
     assert.equal(decideMatch(results, expected).result, "match");
   });
 
+  it("still opens Patient Lookup when the search icon works only a few seconds after login", async () => {
+    const slow = await startMockEcw({ appReadyDelayMs: 3_000 });
+    const tab = await browser.newPage();
+    try {
+      await tab.goto(slow.url);
+      await tab.locator("a.icon-usersearch").waitFor(); // like ensureLoggedIn: returns as soon as the icon shows
+      assert.equal((await findByExternalMrn(tab, "GM100001")).length, 1);
+    } finally {
+      await tab.close();
+      await slow.close();
+    }
+  });
   it("refuses an empty External MRN instead of searching for everyone", async () => {
     await assert.rejects(
       () => findByExternalMrn(page, "  "),

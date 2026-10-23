@@ -1,17 +1,15 @@
 // Read-only check of the eCW search against LIVE eCW, on the TEST patient.
 //
-//   node ecw-try.js <External MRN of the test patient>
+//   node --env-file=.env ecw-try.js <External MRN of the test patient>
 //
-// Opens a visible browser; you log in by hand (username, password, emailed
-// code). Then it searches by that External MRN, then by an MRN that can't
-// exist (the result must be 0 rows — not the previous search's rows).
-// Prints counts only — no names, no DOBs. It never clicks a result row.
+// Opens a visible browser and logs in with ECW_USERNAME / ECW_PASSWORD from
+// .env, then waits for you to confirm the email from eClinicalWorks. Then it
+// searches by that External MRN, then by an MRN that can't
 import path from "node:path";
-import { chromium } from "playwright";
+import { ensureLoggedIn, openEcw } from "./src/ecw/session.js";
 import { findByExternalMrn } from "./src/ecw/search.js";
 import { projectDir } from "./src/config.js";
 
-const ECW_URL = "https://flhfhcapp.ecwcloud.com/mobiledoc/jsp/webemr/index.jsp";
 // eCW's cookies are kept here between runs (e.g. "remember this device").
 // It's under state/, which git ignores: it holds a logged-in session.
 const PROFILE_DIR = path.join(projectDir, "state", "ecw-profile");
@@ -23,20 +21,17 @@ if (!mrn) {
   process.exit(2);
 }
 
-const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+const { context, page } = await openEcw({
+  profileDir: PROFILE_DIR,
   headless: false,
 });
-const page = context.pages()[0] ?? (await context.newPage());
 
 try {
-  await page.goto(ECW_URL, { waitUntil: "domcontentloaded" });
-  console.log("Log in to eCW in the browser widow (including 2FA)...");
-
-  await page
-    .locator("a.icon-usersearch")
-    .waitFor({ state: "visible", timeout: 5 * 60_000 });
-  console.log("Logged in.");
-
+  await ensureLoggedIn(page, {
+    username: process.env.ECW_USERNAME,
+    password: process.env.ECW_PASSWORD,
+  });
+  console.log("Logged in");
   const found = await findByExternalMrn(page, mrn);
   const readable = found.map((r) => /^\d{2}\/\d{2}\/\d{4}$/.test(r.dob));
   console.log(

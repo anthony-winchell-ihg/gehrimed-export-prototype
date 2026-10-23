@@ -95,12 +95,12 @@ const escapeHtml = (s) =>
       ],
   );
 
-const pageHtml = () => `<!doctype html>
+const pageHtml = (appReadyDelayMs) => `<!doctype html>
 <html><head><title>eCW (Mock, User)</title>
 <style>.hidden{display:none} .modal{border:1px solid #888;padding:8px;margin:8px} td,th{border:1px solid #ccc;padding:2px 6px}</style>
 </head><body>
 <header>
-  <a class="cursor icon-usersearch userbtn pull-left" type="patient" title="Action" onclick="openLookup()">[patient search]</a>
+  <a class="cursor icon-usersearch userbtn pull-left" type="patient" title="Action">[patient search]</a>
 </header>
 <main><h3>Office Visits</h3></main>
 
@@ -167,6 +167,9 @@ const pageHtml = () => `<!doctype html>
     clearTimeout(typingTimer);
     typingTimer = setTimeout(search, 500);
   });
+  // Like real eCW right after login (2026-10-23): the search icon is on screen
+  // before it works — a click in the first moments does nothing.
+  setTimeout(() => $("a.icon-usersearch").addEventListener("click", openLookup), ${appReadyDelayMs});
 </script>
 </body></html>`;
 
@@ -253,7 +256,8 @@ const readBody = (req) =>
 
 /**
  * Starts the fake eCW on a random free port.
- * @param {{ patients?: object[], searchDelayMs?: number, requireLogin?: boolean, confirmEmailAfterMs?: number | null }} [options]
+ * @param {{ patients?: object[], searchDelayMs?: number, appReadyDelayMs?: number, requireLogin?: boolean, confirmEmailAfterMs?: number | null }} [options]
+ *   appReadyDelayMs: how long after the home screen appears its search icon starts working
  *   searchDelayMs: how long the fake takes to answer a search
  *   requireLogin: false (default) opens straight on the home screen, for the search tests
  *   confirmEmailAfterMs: "click" the email link this long after a correct password (null = only via confirmEmail())
@@ -261,6 +265,7 @@ const readBody = (req) =>
 export const startMockEcw = async ({
   patients = MOCK_ECW_PATIENTS,
   searchDelayMs = 300,
+  appReadyDelayMs = 0,
   requireLogin = false,
   confirmEmailAfterMs = null,
 } = {}) => {
@@ -284,7 +289,7 @@ export const startMockEcw = async ({
       redirect(PATHS.home);
     } else if (url.pathname === PATHS.home) {
       if (requireLogin && !sessions.has(cookies.ecw_session)) redirect(PATHS.login);
-      else html(pageHtml());
+      else html(pageHtml(appReadyDelayMs));
     } else if (url.pathname === PATHS.login) {
       html(loginPageHtml());
     } else if (url.pathname === PATHS.password && req.method === "POST") {
