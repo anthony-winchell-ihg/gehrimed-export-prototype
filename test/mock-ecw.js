@@ -8,6 +8,9 @@
 //   rows are two SEPARATE tables (rows in #rule-table2, matched to headers by
 //   position); name cells carry the name in a tooltip; every row ends with a
 //   "Delete Patient" icon (i.icdelet) that must never be clicked.
+// Seen on live eCW 2026-10-22: searching sends getPatients.jsp (a POST there;
+//   a GET here — only the address is matched), and typing in #searchText also
+//   searches, shortly after the typing stops.
 //
 // Assumptions not yet seen on live eCW (check in step 7):
 //   results arrive a moment after Search (searchDelayMs), and the previous
@@ -143,12 +146,18 @@ const pageHtml = (searchDelayMs) => `<!doctype html>
   const search = async () => {
     const by = $("#searchBy").textContent;
     const q = $("#searchText").value;
-    const res = await fetch("/api/search?by=" + encodeURIComponent(by) + "&q=" + encodeURIComponent(q));
+    const res = await fetch("/mobiledoc/jsp/catalog/xml/getPatients.jsp?by=" + encodeURIComponent(by) + "&q=" + encodeURIComponent(q));
     const patients = await res.json();
     // The previous rows stay until the new ones arrive (see the note at the top).
     setTimeout(() => { $("#rule-table2 tbody").innerHTML = patients.map(row).join(""); }, ${searchDelayMs});
   };
   const deletePatient = () => fetch("/api/delete-patient", { method: "POST" });
+  // Like real eCW: typing in the box also searches, shortly after the typing stops.
+  let typingTimer;
+  $("#searchText").addEventListener("input", () => {
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(search, 500);
+  });
 </script>
 </body></html>`;
 
@@ -169,7 +178,7 @@ export const startMockEcw = async ({
       res
         .writeHead(200, { "content-type": "text/html" })
         .end(pageHtml(searchDelayMs));
-    } else if (url.pathname === "/api/search") {
+    } else if (url.pathname === "/mobiledoc/jsp/catalog/xml/getPatients.jsp") {
       const by = url.searchParams.get("by");
       const q = (url.searchParams.get("q") ?? "").trim();
       state.searches.push({ by, q });

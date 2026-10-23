@@ -60,8 +60,9 @@ describe("fake eCW patient lookup", { timeout: 60_000 }, () => {
   });
 
   it("recorded every search, and nothing was deleted", () => {
+    // Each search shows up twice (typing + the Search button), so compare the distinct values.
     assert.deepEqual(
-      mock.state.searches.map((s) => s.q),
+      [...new Set(mock.state.searches.map((s) => s.q))],
       ["GM100001", "GM100002", "GM999999"],
     );
     assert.ok(mock.state.searches.every((s) => s.by === "External MRN"));
