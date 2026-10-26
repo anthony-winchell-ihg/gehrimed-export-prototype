@@ -67,3 +67,28 @@ export const uniqueName = (base, used) => {
   used.add(name.toLowerCase());
   return name;
 };
+
+/**
+ * Reads a file name made by buildPdfName back into its parts (the reverse of
+ * buildPdfName). Each name part is one capital followed by lower-case letters
+ * (that's how cleanName writes it), so "ObrienMaryjo" splits cleanly into
+ * last "Obrien" and first "Maryjo". A "_2", "_3"... suffix is allowed.
+ * Returns null for any name not in exactly that format (e.g. one billing renamed).
+ */
+export const parsePdfName = (fileName) => {
+  const m =
+    /^([A-Z][a-z]*)([A-Z][a-z]*)_DOB(\d{2}\.\d{2}\.\d{4})_DOS(\d{2}\.\d{2}\.\d{4})(?:_\d+)?\.pdf$/.exec(
+      String(fileName ?? ""),
+    );
+
+  if (!m) return null;
+
+  const [, lastName, firstName, dob, dos] = m;
+
+  const dateOfBirth = DateTime.fromFormat(dob, DATE_FORMAT);
+  const dateOfService = DateTime.fromFormat(dos, DATE_FORMAT);
+
+  if (!dateOfBirth.isValid || !dateOfService.isValid) return null;
+
+  return { lastName, firstName, dateOfBirth, dateOfService };
+};
