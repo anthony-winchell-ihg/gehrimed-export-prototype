@@ -12,6 +12,7 @@
 import { chromium } from "playwright";
 
 export const ECW_HOME =
+  process.env.ECW_URL ||
   "https://flhfhcapp.ecwcloud.com/mobiledoc/jsp/webemr/index.jsp";
 
 // The screens we know, and how to recognize each one.

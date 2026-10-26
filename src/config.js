@@ -33,6 +33,8 @@ export const manifestFile = path.join(
   "manifest.jsonl",
 );
 export const uploadsFile = path.join(path.dirname(stateFile), "uploads.json"); // eCW uploads per encounter: IDs, statuses, reasons only
+export const ecwProfileDir = path.join(path.dirname(stateFile), "ecw-profile"); // eCW browser profile: holds a logged-in session (git-ignored)
+export const ecwLockFile = path.join(path.dirname(stateFile), "ecw.lock"); // one eCW run at a time (they'd share the profile)
 export const debugDir = path.resolve(projectDir, "debug"); // snapshots: structure only, no patient data
 export const logDir = path.resolve(projectDir, process.env.LOG_DIR || "logs"); // daily logs: IDs and counts only
 export const watchIntervalMinutes = Number(
