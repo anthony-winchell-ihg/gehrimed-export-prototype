@@ -33,16 +33,8 @@ import {
 import { acquireLock } from "./src/lock.js";
 import { loadUploads } from "./src/uploads.js";
 import { encountersToCheck } from "./src/ecw/checkList.js";
-import { findByExternalMrn } from "./src/ecw/search.js";
-import { decideMatch } from "./src/ecw/match.js";
-import {
-  NeedsPersonError,
-  checkHubIdentity,
-  openChartDocuments,
-  openPatientHub,
-} from "./src/ecw/docs.js";
-import { uploadToChartDocuments } from "./src/ecw/upload.js";
-import { SignInError, ensureLoggedIn, openEcw } from "./src/ecw/session.js";
+import { UncertainUploadError, processEncounter } from "./src/ecw/pipeline.js";
+import { openEcw } from "./src/ecw/session.js";
 
 const MODES = ["check", "confirm", "upload"];
 const RESULTS = [
@@ -150,76 +142,27 @@ if (toDo.length) {
   try {
     let errorsInARow = 0;
     for (const item of toDo) {
-      let started = false; // set the moment uploads.json says "started"
-      try {
-        await ensureLoggedIn(page, credentials); // a fresh home screen for every encounter
-
-        const match = decideMatch(
-          await findByExternalMrn(page, item.externalMrn),
-          item.expected,
-        );
-        if (match.result !== "match") {
-          await needsPerson(item, `${match.result}: ${match.reason}`);
-          continue;
-        }
-        const hub = await openPatientHub(page);
-        await checkHubIdentity(hub, {
-          externalMrn: item.externalMrn,
-          dateOfBirth: item.expected.dateOfBirth,
-        });
-        const count = await openChartDocuments(page, hub);
-
-        if (!writes) {
-          record(
-            item.encounterId,
-            "ready",
-            `would upload here; Chart Documents has ${count}`,
-          );
-        } else {
-          const outcome = await uploadToChartDocuments(page, {
-            pdfPath: item.pdfPath,
-            dateOfService: item.dateOfService,
-            byPerson: args.mode === "confirm",
-            beforeWrite: async () => {
-              await uploads.markStarted(item.encounterId, item.dateOfService);
-              started = true;
-            },
-          });
-          if (outcome.uploaded) {
-            await uploads.markUploaded(item.encounterId, item.dateOfService);
-            record(item.encounterId, "uploaded");
-          } else {
-            await needsPerson(item, outcome.reason);
-          }
-        }
+      const { result, reason } = await processEncounter(page, item, { mode: args.mode, uploads, credentials });
+      record(item.encounterId, result, reason);
+      if (result !== "error") {
         errorsInARow = 0;
-      } catch (e) {
-        if (e instanceof SignInError) throw e; // a person must log in: stop everything
-        if (e instanceof NeedsPersonError) {
-          await needsPerson(item, e.message);
-          continue;
-        }
-        exitCode = 1;
-        const reason = e.message.split("\n")[0];
-        if (started) {
-          // The record stays "started": it's on the manual list and is never uploaded again by itself.
-          record(item.encounterId, "uncertain", reason);
-          console.error(
-            "❌ Not sure an upload worked — stopping. Check that chart before running again.",
-          );
-          break;
-        }
-        if (writes) await uploads.markFailed(item.encounterId); // nothing was written: it may be retried
-        record(item.encounterId, "error", reason);
-        if (++errorsInARow >= MAX_ERRORS_IN_A_ROW) {
-          console.error(`❌ ${MAX_ERRORS_IN_A_ROW} errors in a row — stopping`);
-          break;
-        }
+        continue;
+      }
+      exitCode = 1;
+      if (++errorsInARow >= MAX_ERRORS_IN_A_ROW) {
+        console.error(`❌ ${MAX_ERRORS_IN_A_ROW} errors in a row — stopping`);
+        break;
       }
     }
   } catch (e) {
-    console.error(`❌ ${e.message.split("\n")[0]}`);
     exitCode = 1;
+    if (e instanceof UncertainUploadError) {
+      // Its record stays "started": it's on the manual list and is never uploaded again by itself.
+      record(e.encounterId, "uncertain", e.message);
+      console.error("❌ Not sure an upload worked — stopping. Check that chart before running again.");
+    } else {
+      console.error(`❌ ${e.message.split("\n")[0]}`); // e.g. a SignInError: a person must log in
+    }
   } finally {
     await context.close();
   }
