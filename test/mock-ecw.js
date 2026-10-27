@@ -439,6 +439,7 @@ const readBody = (req) =>
  *   confirmEmailAfterMs: "click" the email link this long after a correct password (null = only via confirmEmail())
  *   flattenWarning: true (default) shows the "PDF Flatten" warning; false = this user switched it off (choosing a file uploads at once)
  *   documents: documents already in charts, e.g. [{ patientId: "300001", catid: 2, customName: "2026-10-12 Progress Note" }]
+ *   failUploads: true = eCW answers uploads with a failure and stores nothing
  */
 export const startMockEcw = async ({
   patients = MOCK_ECW_PATIENTS,
@@ -448,6 +449,7 @@ export const startMockEcw = async ({
   confirmEmailAfterMs = null,
   flattenWarning = true,
   documents = [],
+  failUploads = false,
 } = {}) => {
   // What the browser did — tests check these (e.g. deletes must stay 0).
   const state = {
@@ -539,6 +541,10 @@ export const startMockEcw = async ({
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(counts));
     } else if (url.pathname === "/mock/upload-document" && req.method === "POST") {
       const form = await readFormData(req);
+      if (failUploads) {
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ status: "failed" }));
+        return;
+      }
       const file = form.get("fileUpload");
       const bytes = Buffer.from(await file.arrayBuffer());
       const patientId = String(form.get("PatientId"));
