@@ -17,42 +17,59 @@
 //   External MRN it stays disabled. Setting the same text again is no change,
 //   so it doesn't search. The first result row is selected automatically.
 //   `searchDelayMs` is how long the fake eCW takes to answer.
+//
+// Opening a patient (read from eCW's code on the test patient, 2026-10-27):
+//   the Patient Hub button (#patientSearchBtn11) opens the SELECTED row's
+//   patient; before the Hub, eCW may ask: "partially merged data — are you
+//   sure?", an inactive / merge-source prompt, or "export or link this patient
+//   to eEHX?" (Yes = a write). The Hub (#patient_hub) shows the External MRN in
+//   [ng-bind="PatientHubInfo.mrn"] and the DOB in
+//   [ng-bind="PatientHubInfo.dateOfBirth"] (MM/DD/YYYY); the name is cut at 18
+//   characters. Hub → #letterDropDown → "Patient Doc - Web Mode" opens
+//   #modalPatientDocs: folders a#pt_<id> labelled "Name(count)" (Chart
+//   Documents = pt_2), Add Description #addDescription (ticked), Add Local
+//   #patientdocsBtn4 → hidden #fileUpload. No folder selected → "Please select
+//   a category." A PDF first gets the "PDF Flatten" warning (OK uploads, Cancel
+//   doesn't; a "Don't show this message again" box can switch it off for the
+//   user — then choosing the file uploads at once). The document's name in eCW
+//   is the uploaded file's name without ".pdf".
+// Assumptions not yet seen on live eCW (check at the test pass): the prompts'
+//   exact markup (here: standard bootbox dialogs with Yes/No), how the Hub
+//   marks an inactive patient ("(Inactive)" after the name), the "Document
+//   Details" window after an upload, and how the upload request looks.
 import crypto from "node:crypto";
 import http from "node:http";
+import { Readable } from "node:stream";
 
-/** Made-up patients. Any External MRN not listed here finds nothing. */
+/**
+ * Made-up patients. Any External MRN not listed here finds nothing.
+ * `id` is eCW's own internal patient ID. The flags make eCW ask before
+ * opening the Patient Hub (partiallyMerged, mergeSource, needsEhxExport) or
+ * mark the patient inactive on the Hub.
+ */
 export const MOCK_ECW_PATIENTS = [
   // One chart for this MRN: the normal case.
-  {
-    externalMrn: "GM100001",
-    lastName: "TESTLASTA",
-    firstName: "PATA",
-    dob: "01/02/1940",
-    acctNo: "50001",
-  },
+  { id: "300001", externalMrn: "GM100001", lastName: "TESTLASTA", firstName: "PATA", dob: "01/02/1940", acctNo: "50001" },
   // Two charts share this MRN (a duplicate chart): must come out as "several".
-  {
-    externalMrn: "GM100002",
-    lastName: "TESTLASTB",
-    firstName: "PATB",
-    dob: "02/03/1941",
-    acctNo: "50002",
-  },
-  {
-    externalMrn: "GM100002",
-    lastName: "TESTLASTB",
-    firstName: "PATB",
-    dob: "02/03/1941",
-    acctNo: "50003",
-  },
+  { id: "300002", externalMrn: "GM100002", lastName: "TESTLASTB", firstName: "PATB", dob: "02/03/1941", acctNo: "50002" },
+  { id: "300003", externalMrn: "GM100002", lastName: "TESTLASTB", firstName: "PATB", dob: "02/03/1941", acctNo: "50003" },
   // Hyphen and space in the last name, as eCW may show them.
-  {
-    externalMrn: "GM100003",
-    lastName: "TEST-LAST C",
-    firstName: "PATC",
-    dob: "03/04/1942",
-    acctNo: "50004",
-  },
+  { id: "300004", externalMrn: "GM100003", lastName: "TEST-LAST C", firstName: "PATC", dob: "03/04/1942", acctNo: "50004" },
+  // Charts eCW asks about before opening — never to be answered by the program.
+  { id: "300005", externalMrn: "GM100004", lastName: "TESTLASTD", firstName: "PATD", dob: "04/05/1943", acctNo: "50005", partiallyMerged: true },
+  { id: "300006", externalMrn: "GM100005", lastName: "TESTLASTE", firstName: "PATE", dob: "05/06/1944", acctNo: "50006", needsEhxExport: true },
+  { id: "300007", externalMrn: "GM100006", lastName: "TESTLASTF", firstName: "PATF", dob: "06/07/1945", acctNo: "50007", mergeSource: true },
+  // Opens, but the Hub marks it inactive.
+  { id: "300008", externalMrn: "GM100007", lastName: "TESTLASTG", firstName: "PATG", dob: "07/08/1946", acctNo: "50008", inactive: true },
+];
+
+/** Patient Docs folders shown in the fake (a few of the real ones, real IDs). Chart Documents = 2. */
+const DOC_CATEGORIES = [
+  [4, "Patient Documents"],
+  [2, "Chart Documents"],
+  [1, "Lab Documents"],
+  [5, "Consult Notes"],
+  [8, "Misc."],
 ];
 
 // The real menu's items, in the real order (the eCW "S …" custom items left out).
@@ -95,7 +112,7 @@ const escapeHtml = (s) =>
       ],
   );
 
-const pageHtml = (appReadyDelayMs) => `<!doctype html>
+const pageHtml = ({ appReadyDelayMs, flattenWarning }) => `<!doctype html>
 <html><head><title>eCW (Mock, User)</title>
 <style>.hidden{display:none} .modal{border:1px solid #888;padding:8px;margin:8px} td,th{border:1px solid #ccc;padding:2px 6px}</style>
 </head><body>
@@ -122,9 +139,47 @@ const pageHtml = (appReadyDelayMs) => `<!doctype html>
     </div>
     <button type="button" id="patientSearchBtn10201" title="ALT + S" disabled onclick="search()">Search</button>
     <button type="button" id="patientSearchBtn10" title="ALT + C" onclick="closeLookup()">Cancel</button>
+    <button type="button" id="patientSearchBtn11" title="ALT + H" onclick="launchHub()">Patient Hub</button>
+    <button type="button" id="patientSearchBtn12" title="ALT + I">Patient Demographics</button>
     <table class="table table-bordered blue-fade-table"><thead><tr>${HEADERS.map((h) => `<th>${h}</th>`).join("")}</tr></thead></table>
     <table class="table table-bordered blue-fade-table" id="rule-table2"><tbody></tbody></table>
   </div>
+</div>
+
+<div class="modal fade bluetheme modal-width hidden" id="patient_hub">
+  <div class="modal-header">
+    <button type="button" id="patient-hubBtn1" onclick="closeHub()">×</button>
+    <span class="modal-title">Patient Hub <span id="hubName" ng-bind="trimPatientDetails(PatientHubInfo.strNamewithsuffix,18)"></span></span>
+  </div>
+  <div class="modal-body">
+    DOB: <span ng-bind="PatientHubInfo.dateOfBirth"></span>
+    MRN: <strong><span ng-bind="PatientHubInfo.mrn"></span></strong>
+    <div class="dropdown pull-left">
+      <button type="button" id="letterDropDown" class="btn blu-ligtgry btn-sm dropdown-toggle" onclick="toggleDocMenu()"></button>
+      <ul class="dropdown-menu hidden" id="hubDocMenu">
+        <li class="hlight"><a id="letterDropDownLink" onclick="openPatientDocs()">Patient Doc - Web Mode</a></li>
+        <li class="hlight"><a id="letterDropDownLink" onclick="fetch('/mock/plugin-mode', { method: 'POST' })">Patient Doc - Plug-in Mode</a></li>
+        <li>No Favorite Tag Group(s) Configured</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="modal hidden" id="modalPatientDocs">
+  <div class="modal-header">
+    <button type="button" id="savePrompt-tplBtn1" onclick="$('#modalPatientDocs').classList.add('hidden')">×</button>
+    <span class="modal-title">Patient Documents - Web Mode</span>
+  </div>
+  <div id="docTree"></div>
+  <input type="checkbox" id="addDescription" checked> <label for="addDescription">Add Description</label>
+  <button type="button" id="patientdocsBtn4" onclick="importDocument()">Add Local</button>
+  <input type="file" id="fileUpload" name="fileUpload" style="display:none">
+  <iframe id="PatientDocsIframeView" name="PatientDocsIframeView-name"></iframe>
+</div>
+
+<div class="modal hidden" id="documentDetails">
+  <span class="modal-title">Document Details</span>
+  <button type="button" onclick="$('#documentDetails').classList.add('hidden')">Close</button>
 </div>
 
 <script>
@@ -138,26 +193,138 @@ const pageHtml = (appReadyDelayMs) => `<!doctype html>
     $("#searchText").placeholder = a.textContent === "Name" ? "Last Name, First Name" : "";
     $("#searchByMenu").classList.add("hidden");
   };
-  const row = (p) => \`<tr class="ng-scope" ng-repeat="patient in patientList track by patient.id">
+  const row = (p, i) => \`<tr class="ng-scope" ng-repeat="patient in patientList track by patient.id" onclick="selectRow(\${i})">
       <td class="w4p"></td><td class="nopadding w4p"></td><td class="w13p nopadding"></td>
-      <td class="w17p patientName"><span title="Launch Patient Hub. Last Name: \${esc(p.lastName)}">\${esc(p.lastName)}</span></td>
-      <td class="w14p patientName"><span title="Launch Patient Hub. First Name: \${esc(p.firstName)}">\${esc(p.firstName)}</span></td>
+      <td class="w17p patientName"><span title="Launch Patient Hub. Last Name: \${esc(p.lastName)}" onclick="event.stopPropagation(); selectRow(\${i}); launchHub()">\${esc(p.lastName)}</span></td>
+      <td class="w14p patientName"><span title="Launch Patient Hub. First Name: \${esc(p.firstName)}" onclick="event.stopPropagation(); selectRow(\${i}); launchHub()">\${esc(p.firstName)}</span></td>
       <td class="w8p"></td><td class="w10p">\${esc(p.dob)}</td><td class="w5p">U</td><td class="w12p">\${esc(p.acctNo)}</td>
       <td class="wd21pr"></td><td class="wd21pr"></td><td class="w14p"></td>
-      <td class="w5p"><span class="pull-left bsquare"></span><i class="icon icdelet" title="Delete Patient" onclick="deletePatient()"></i></td>
+      <td class="w5p"><span class="pull-left bsquare"></span><i class="icon icdelet" title="Delete Patient" onclick="event.stopPropagation(); deletePatient()"></i></td>
     </tr>\`;
   const results = () => $("#rule-table2 tbody");
+  let patientList = [];
+  let selected = 0;
+  const selectRow = (i) => {
+    selected = i;
+    results().querySelectorAll("tr").forEach((tr, j) => tr.classList.toggle("highlight", j === i));
+  };
   const search = async () => {
     const res = await fetch("/mobiledoc/jsp/catalog/xml/getPatients.jsp", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ SearchBy: $("#searchBy").textContent, primarySearchValue: $("#searchText").value }),
     });
-    const patients = await res.json();
-    results().innerHTML = patients.map(row).join("");
-    results().querySelector("tr")?.classList.add("highlight"); // eCW selects the first result
+    patientList = await res.json();
+    results().innerHTML = patientList.map(row).join("");
+    if (patientList.length) selectRow(0); // eCW selects the first result
   };
   const deletePatient = () => fetch("/api/delete-patient", { method: "POST" });
+
+  // ---- Prompts (a bootbox-style dialog; see the assumptions at the top) ----
+  const showDialog = (title, message, buttons) => {
+    const box = document.createElement("div");
+    box.className = "bootbox modal bluetheme";
+    box.innerHTML = \`<div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h4 class="modal-title">\${esc(title)}</h4></div>
+      <div class="modal-body"><div class="bootbox-body">\${esc(message)}</div></div>
+      <div class="modal-footer"></div></div></div>\`;
+    for (const [label, handler, onClick] of buttons) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn";
+      b.dataset.bbHandler = handler;
+      b.textContent = label;
+      b.onclick = () => { box.remove(); onClick?.(); };
+      box.querySelector(".modal-footer").append(b);
+    }
+    document.body.append(box);
+  };
+  const askBeforeOpening = (title, message, onYes) =>
+    showDialog(title, message, [
+      ["No", "cancel"],
+      ["Yes", "confirm", () => { fetch("/mock/prompt-yes", { method: "POST" }); onYes(); }],
+    ]);
+
+  // ---- Patient Hub ----
+  let hubPatient = null;
+  const launchHub = () => {
+    const p = patientList[selected];
+    if (!p) return;
+    if (p.partiallyMerged) return askBeforeOpening("Partially Merged Data", "Warning This patient has partially merged data. Are you sure you want to proceed?", () => openHub(p));
+    if (p.mergeSource) return askBeforeOpening("eClinicalWorks", "This patient was merged into another chart and is inactive. Do you want to continue?", () => openHub(p));
+    if (p.needsEhxExport) return askBeforeOpening("eClinicalWorks", "The patient has to be exported or linked to eEHX.Do you want to export or link this patient ?", () => fetch("/mock/ehx-export", { method: "POST" }));
+    openHub(p);
+  };
+  const openHub = (p) => {
+    hubPatient = p;
+    closeLookup();
+    const name = p.lastName + ", " + p.firstName;
+    $("#hubName").textContent = (name.length > 18 ? name.slice(0, 18) + "..." : name) + (p.inactive ? " (Inactive)" : "") + " 80Y, U";
+    $('#patient_hub [ng-bind="PatientHubInfo.dateOfBirth"]').textContent = p.dob;
+    $('#patient_hub [ng-bind="PatientHubInfo.mrn"]').textContent = p.externalMrn;
+    $("#patient_hub").classList.remove("hidden");
+  };
+  const closeHub = () => $("#patient_hub").classList.add("hidden");
+  const toggleDocMenu = () => $("#hubDocMenu").classList.toggle("hidden");
+
+  // ---- Patient Docs (Web Mode) and Add Local ----
+  const CATEGORIES = ${JSON.stringify(DOC_CATEGORIES)};
+  let selectedCategory = null;
+  let showFlattenWarning = ${flattenWarning};
+  const renderTree = async () => {
+    const counts = await (await fetch("/mock/patient-docs?patientId=" + hubPatient.id)).json();
+    $("#docTree").innerHTML = CATEGORIES.map(([id, name]) =>
+      \`<a id="pt_\${id}" class="\${selectedCategory === id ? "selected" : ""}" onclick="selectCategory(\${id})">\${name}(\${counts[id] ?? 0})</a><br>\`).join("");
+  };
+  const selectCategory = (id) => { selectedCategory = id; renderTree(); };
+  const openPatientDocs = async () => {
+    $("#hubDocMenu").classList.add("hidden");
+    selectedCategory = null;
+    await renderTree();
+    $("#modalPatientDocs").classList.remove("hidden");
+  };
+  const importDocument = () => {
+    if (selectedCategory === null) return showDialog("eClinicalworks", "Please select a category.", [["OK", "ok"]]);
+    const input = $("#fileUpload");
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file || file.size === 0) { input.value = ""; return; }
+      if (file.name.toLowerCase().endsWith(".pdf") && showFlattenWarning) askToFlatten(() => upload(file), () => (input.value = ""));
+      else upload(file);
+    };
+    input.click();
+  };
+  const askToFlatten = (onOk, onCancel) => {
+    const box = document.createElement("div");
+    box.className = "modal show-popup-for-pdf-upload";
+    box.innerHTML = \`<div class="modal-content">
+      <div class="modal-title">PDF Flatten</div>
+      <div class="prompt-message">PDFs should be <a class="flattenPDFInfo">flattened</a> before uploading them into Patient Documents else they may appear differently or be missing data when loaded into the system<br><br>
+        <div class="input-append"><input type="checkbox" id="showFlattenPDFWarning"><i>Don't show this message again</i></div></div>
+      <button type="button" class="btn btn-blue mt2">OK</button>
+      <button type="button" class="btn btn-lgrey mt2">Cancel</button></div>\`;
+    box.querySelector("#showFlattenPDFWarning").onclick = () => {
+      showFlattenWarning = false;
+      fetch("/mock/flatten-warning-off", { method: "POST" });
+    };
+    const [ok, cancel] = box.querySelectorAll("button");
+    ok.onclick = () => { box.remove(); onOk(); };
+    cancel.onclick = () => { box.remove(); onCancel(); };
+    document.body.append(box);
+  };
+  const upload = async (file) => {
+    const form = new FormData();
+    form.append("fileUpload", file, file.name);
+    form.append("PatientId", hubPatient.id);
+    form.append("catid", selectedCategory);
+    $("#PatientDocsIframeView").srcdoc = "Loading...";
+    const { status } = await (await fetch("/mock/upload-document", { method: "POST", body: form })).json();
+    $("#fileUpload").value = "";
+    if (status === "success") {
+      if ($("#addDescription").checked) $("#documentDetails").classList.remove("hidden");
+      await renderTree();
+    }
+  };
   // Like real eCW: every change that leaves 2+ characters clears the results,
   // then searches by itself 500 ms later. (The Search button stays disabled.)
   let typingTimer;
@@ -246,6 +413,15 @@ const readCookies = (req) =>
       .map((c) => [c.slice(0, c.indexOf("=")), c.slice(c.indexOf("=") + 1)]),
   );
 
+/** Parses a multipart upload (file + fields) with the web-standard Request.formData(). */
+const readFormData = (req) =>
+  new Request(`http://x${req.url}`, {
+    method: req.method,
+    headers: req.headers,
+    body: Readable.toWeb(req),
+    duplex: "half",
+  }).formData();
+
 const readBody = (req) =>
   new Promise((resolve, reject) => {
     let body = "";
@@ -256,11 +432,13 @@ const readBody = (req) =>
 
 /**
  * Starts the fake eCW on a random free port.
- * @param {{ patients?: object[], searchDelayMs?: number, appReadyDelayMs?: number, requireLogin?: boolean, confirmEmailAfterMs?: number | null }} [options]
+ * @param {{ patients?: object[], searchDelayMs?: number, appReadyDelayMs?: number, requireLogin?: boolean, confirmEmailAfterMs?: number | null, flattenWarning?: boolean, documents?: object[] }} [options]
  *   appReadyDelayMs: how long after the home screen appears its search icon starts working
  *   searchDelayMs: how long the fake takes to answer a search
  *   requireLogin: false (default) opens straight on the home screen, for the search tests
  *   confirmEmailAfterMs: "click" the email link this long after a correct password (null = only via confirmEmail())
+ *   flattenWarning: true (default) shows the "PDF Flatten" warning; false = this user switched it off (choosing a file uploads at once)
+ *   documents: documents already in charts, e.g. [{ patientId: "300001", catid: 2, customName: "2026-10-12 Progress Note" }]
  */
 export const startMockEcw = async ({
   patients = MOCK_ECW_PATIENTS,
@@ -268,9 +446,23 @@ export const startMockEcw = async ({
   appReadyDelayMs = 0,
   requireLogin = false,
   confirmEmailAfterMs = null,
+  flattenWarning = true,
+  documents = [],
 } = {}) => {
   // What the browser did — tests check these (e.g. deletes must stay 0).
-  const state = { searches: [], deletes: 0, logins: 0, failedLogins: 0, emailsSent: 0 };
+  const state = {
+    searches: [],
+    deletes: 0,
+    logins: 0,
+    failedLogins: 0,
+    emailsSent: 0,
+    uploads: [], // { patientId, externalMrn, catid, customName, sha256 } per document received
+    promptsAnsweredYes: 0, // "Yes" on a prompt before opening a patient — the program must never
+    ehxExports: 0, // patients exported/linked to eEHX — a write the program must never cause
+    pluginModeOpened: 0,
+    flattenWarningTurnedOff: false, // the program must never tick "Don't show this message again"
+  };
+  const chartDocuments = documents.map((d) => ({ ...d }));
   const sessions = new Set(); // logged-in session tokens
   const waitingForEmail = new Map(); // OTP token → has the email link been clicked?
 
@@ -289,7 +481,7 @@ export const startMockEcw = async ({
       redirect(PATHS.home);
     } else if (url.pathname === PATHS.home) {
       if (requireLogin && !sessions.has(cookies.ecw_session)) redirect(PATHS.login);
-      else html(pageHtml(appReadyDelayMs));
+      else html(pageHtml({ appReadyDelayMs, flattenWarning }));
     } else if (url.pathname === PATHS.login) {
       html(loginPageHtml());
     } else if (url.pathname === PATHS.password && req.method === "POST") {
@@ -339,6 +531,39 @@ export const startMockEcw = async ({
       req.method === "POST"
     ) {
       state.deletes++;
+      res.writeHead(200).end();
+    } else if (url.pathname === "/mock/patient-docs") {
+      const patientId = url.searchParams.get("patientId");
+      const counts = {};
+      for (const d of chartDocuments.filter((d) => d.patientId === patientId)) counts[d.catid] = (counts[d.catid] ?? 0) + 1;
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(counts));
+    } else if (url.pathname === "/mock/upload-document" && req.method === "POST") {
+      const form = await readFormData(req);
+      const file = form.get("fileUpload");
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const patientId = String(form.get("PatientId"));
+      const doc = {
+        patientId,
+        externalMrn: patients.find((p) => p.id === patientId)?.externalMrn,
+        catid: Number(form.get("catid")),
+        customName: file.name.replace(/\.[^.]+$/, ""), // like eCW: the file's name without its extension
+        sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      };
+      chartDocuments.push(doc);
+      state.uploads.push(doc);
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ status: "success" }));
+    } else if (url.pathname === "/mock/prompt-yes" && req.method === "POST") {
+      state.promptsAnsweredYes++;
+      res.writeHead(200).end();
+    } else if (url.pathname === "/mock/ehx-export" && req.method === "POST") {
+      state.ehxExports++;
+      res.writeHead(200).end();
+    } else if (url.pathname === "/mock/plugin-mode" && req.method === "POST") {
+      state.pluginModeOpened++;
+      res.writeHead(200).end();
+    } else if (url.pathname === "/mock/flatten-warning-off" && req.method === "POST") {
+      state.flattenWarningTurnedOff = true;
+      flattenWarning = false; // eCW remembers it for this user
       res.writeHead(200).end();
     } else {
       res.writeHead(404).end();

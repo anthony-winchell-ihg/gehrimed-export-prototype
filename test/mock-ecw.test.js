@@ -1,6 +1,10 @@
-// Checks the fake eCW itself behaves like the real Patient Lookup.
+// Checks the fake eCW itself behaves like the real one: Patient Lookup, login,
+// Patient Hub, Patient Docs and Add Local.
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { chromium } from "playwright";
 import { MOCK_ECW_LOGIN, startMockEcw } from "./mock-ecw.js";
 
@@ -134,5 +138,119 @@ describe("fake eCW login", { timeout: 60_000 }, () => {
     mock.expireSessions();
     await page.goto(mock.url);
     assert.match(page.url(), /login\/newLogin\.jsp$/);
+  });
+});
+
+describe("fake eCW Patient Hub, Patient Docs and Add Local", { timeout: 90_000 }, () => {
+  let browser, tmp, pdf;
+  before(async () => {
+    browser = await chromium.launch();
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mock-ecw-docs-"));
+    pdf = path.join(tmp, "2026-10-12 Progress Note.pdf");
+    await fs.writeFile(pdf, "%PDF-1.4 made-up test document");
+  });
+  after(async () => {
+    await browser?.close();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  // Opens a fresh fake eCW and searches by External MRN, like a person would.
+  const searched = async (mrn, options = {}) => {
+    const mock = await startMockEcw(options);
+    const page = await browser.newPage();
+    await page.goto(mock.url);
+    await page.locator("a.icon-usersearch").click();
+    await page.locator("#searchBy").click();
+    await page.locator("#searchByMenu a", { hasText: "External MRN" }).click();
+    await Promise.all([page.waitForResponse(/getPatients\.jsp/), page.locator("#searchText").fill(mrn)]);
+    await page.locator("#rule-table2 tbody tr").first().waitFor();
+    return { mock, page };
+  };
+  const openChartDocuments = async (page) => {
+    await page.locator("#patientSearchBtn11").click();
+    await page.locator("#patient_hub").waitFor({ state: "visible" });
+    await page.locator("#patient_hub #letterDropDown").click();
+    await page.locator("#patient_hub a", { hasText: "Patient Doc - Web Mode" }).click();
+    await page.locator("#modalPatientDocs a#pt_2").click();
+    await page.locator("#modalPatientDocs a#pt_2.selected").waitFor();
+  };
+
+  it("opens the Patient Hub with the External MRN and DOB on screen", async () => {
+    const { mock, page } = await searched("GM100001");
+    await page.locator("#patientSearchBtn11").click();
+    await page.locator("#patient_hub").waitFor({ state: "visible" });
+    assert.equal(await page.locator('#patient_hub [ng-bind="PatientHubInfo.mrn"]').innerText(), "GM100001");
+    assert.equal(await page.locator('#patient_hub [ng-bind="PatientHubInfo.dateOfBirth"]').innerText(), "01/02/1940");
+    await mock.close();
+  });
+
+  it("asks before opening a partially merged chart, and 'No' leaves it closed", async () => {
+    const { mock, page } = await searched("GM100004");
+    await page.locator("#patientSearchBtn11").click();
+    await page.locator(".bootbox", { hasText: "partially merged" }).waitFor();
+    assert.equal(await page.locator("#patient_hub").isVisible(), false);
+    await page.locator('.bootbox [data-bb-handler="cancel"]').click();
+    assert.equal(mock.state.promptsAnsweredYes, 0);
+    await mock.close();
+  });
+
+  it("counts a 'Yes' on the eEHX prompt as an export (a write the program must never cause)", async () => {
+    const { mock, page } = await searched("GM100005");
+    await page.locator("#patientSearchBtn11").click();
+    await page.locator('.bootbox [data-bb-handler="confirm"]').click();
+    await assert.doesNotReject(async () => {
+      for (let i = 0; i < 20 && mock.state.ehxExports === 0; i++) await page.waitForTimeout(100);
+    });
+    assert.equal(mock.state.ehxExports, 1);
+    await mock.close();
+  });
+
+  it("shows the folder counts, and refuses Add Local with no folder selected", async () => {
+    const { mock, page } = await searched("GM100001", { documents: [{ patientId: "300001", catid: 2, customName: "old note" }] });
+    await page.locator("#patientSearchBtn11").click();
+    await page.locator("#patient_hub #letterDropDown").click();
+    await page.locator("#patient_hub a", { hasText: "Patient Doc - Web Mode" }).click();
+    assert.equal(await page.locator("#modalPatientDocs a#pt_2").innerText(), "Chart Documents(1)");
+    await page.locator("#patientdocsBtn4").click();
+    await page.locator(".bootbox", { hasText: "Please select a category." }).waitFor();
+    await mock.close();
+  });
+
+  it("uploads only after OK on the PDF warning, named after the file", async () => {
+    const { mock, page } = await searched("GM100001");
+    await openChartDocuments(page);
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.locator("#patientdocsBtn4").click()]);
+    await chooser.setFiles(pdf);
+    await page.locator(".show-popup-for-pdf-upload").waitFor();
+    assert.equal(mock.state.uploads.length, 0); // nothing yet: the warning is in the way
+    await page.locator(".show-popup-for-pdf-upload button", { hasText: "OK" }).click();
+    await page.locator("#modalPatientDocs a#pt_2", { hasText: "Chart Documents(1)" }).waitFor();
+    assert.deepEqual(
+      mock.state.uploads.map((u) => [u.externalMrn, u.catid, u.customName]),
+      [["GM100001", 2, "2026-10-12 Progress Note"]],
+    );
+    await page.locator("#documentDetails").waitFor({ state: "visible" });
+    await mock.close();
+  });
+
+  it("Cancel on the PDF warning uploads nothing", async () => {
+    const { mock, page } = await searched("GM100001");
+    await openChartDocuments(page);
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.locator("#patientdocsBtn4").click()]);
+    await chooser.setFiles(pdf);
+    await page.locator(".show-popup-for-pdf-upload button", { hasText: "Cancel" }).click();
+    await page.waitForTimeout(300);
+    assert.equal(mock.state.uploads.length, 0);
+    await mock.close();
+  });
+
+  it("with the warning switched off, choosing the file uploads at once", async () => {
+    const { mock, page } = await searched("GM100001", { flattenWarning: false });
+    await openChartDocuments(page);
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.locator("#patientdocsBtn4").click()]);
+    await chooser.setFiles(pdf);
+    await page.locator("#modalPatientDocs a#pt_2", { hasText: "Chart Documents(1)" }).waitFor();
+    assert.equal(mock.state.uploads.length, 1);
+    await mock.close();
   });
 });
