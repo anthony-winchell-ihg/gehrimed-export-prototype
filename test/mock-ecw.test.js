@@ -169,7 +169,7 @@ describe("fake eCW Patient Hub, Patient Docs and Add Local", { timeout: 90_000 }
   const openChartDocuments = async (page) => {
     await page.locator("#patientSearchBtn11").click();
     await page.locator("#patient_hub").waitFor({ state: "visible" });
-    await page.locator("#patient_hub #letterDropDown").click();
+    await page.locator("#patient_hub .dropdown", { has: page.locator("a", { hasText: "Patient Doc - Web Mode" }) }).locator("#letterDropDown").click();
     await page.locator("#patient_hub a", { hasText: "Patient Doc - Web Mode" }).click();
     await page.locator("#modalPatientDocs a#pt_2").click();
     await page.locator("#modalPatientDocs a#pt_2.selected").waitFor();
@@ -208,7 +208,7 @@ describe("fake eCW Patient Hub, Patient Docs and Add Local", { timeout: 90_000 }
   it("shows the folder counts, and refuses Add Local with no folder selected", async () => {
     const { mock, page } = await searched("GM100001", { documents: [{ patientId: "300001", catid: 2, customName: "old note" }] });
     await page.locator("#patientSearchBtn11").click();
-    await page.locator("#patient_hub #letterDropDown").click();
+    await page.locator("#patient_hub .dropdown", { has: page.locator("a", { hasText: "Patient Doc - Web Mode" }) }).locator("#letterDropDown").click();
     await page.locator("#patient_hub a", { hasText: "Patient Doc - Web Mode" }).click();
     assert.equal(await page.locator("#modalPatientDocs a#pt_2").innerText(), "Chart Documents(1)");
     await page.locator("#patientdocsBtn4").click();

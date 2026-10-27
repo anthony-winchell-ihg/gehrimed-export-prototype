@@ -154,6 +154,15 @@ const pageHtml = ({ appReadyDelayMs, flattenWarning }) => `<!doctype html>
   <div class="modal-body">
     DOB: <span ng-bind="PatientHubInfo.dateOfBirth"></span>
     MRN: <strong><span ng-bind="PatientHubInfo.mrn"></span></strong>
+    <!-- Live eCW has three #letterDropDown buttons in the Hub (seen 2026-10-27); only one opens Patient Docs. -->
+    <div class="dropdown pull-left">
+      <button type="button" id="letterDropDown" class="btn btn-sm dropdown-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')"></button>
+      <ul class="dropdown-menu hidden"><li><a>New Letter</a></li><li><a>Letter Templates</a></li></ul>
+    </div>
+    <div class="dropdown pull-left">
+      <button type="button" id="letterDropDown" class="btn btn-sm dropdown-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')"></button>
+      <ul class="dropdown-menu hidden"><li><a>Export Documents</a></li></ul>
+    </div>
     <div class="dropdown pull-left">
       <button type="button" id="letterDropDown" class="btn blu-ligtgry btn-sm dropdown-toggle" onclick="toggleDocMenu()"></button>
       <ul class="dropdown-menu hidden" id="hubDocMenu">

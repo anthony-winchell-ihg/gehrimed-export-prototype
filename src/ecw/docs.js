@@ -112,8 +112,14 @@ export const chartDocumentCount = async (page) => {
  * @returns {Promise<number>} how many documents Chart Documents holds now
  */
 export const openChartDocuments = async (page, hub) => {
-  await hub.locator("#letterDropDown").click();
-  await hub.locator("a", { hasText: /^\s*Patient Doc - Web Mode\s*$/ }).click();
+  // Live eCW has three #letterDropDown buttons in the Hub (2026-10-27). Use the
+  // one in the same dropdown as "Patient Doc - Web Mode", and only if that item is unique.
+  const webMode = hub.locator("a", { hasText: /^\s*Patient Doc - Web Mode\s*$/ });
+  const found = await webMode.count();
+  if (found !== 1) throw new Error(`eCW Patient Hub: expected one "Patient Doc - Web Mode" item, found ${found}`);
+  const dropdown = webMode.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' dropdown ')][1]");
+  await dropdown.locator("#letterDropDown").click();
+  await webMode.click();
   await page.locator(DOCS).waitFor({ state: "visible", timeout: 30_000 });
   await page.locator(`${DOCS} ${CHART_DOCUMENTS}`).click();
   return chartDocumentCount(page);
