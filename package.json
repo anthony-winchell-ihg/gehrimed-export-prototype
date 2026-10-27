@@ -10,7 +10,8 @@
     "watch": "node --env-file-if-exists=.env watch.js",
     "report": "node --env-file-if-exists=.env report.js",
     "ledger": "node --env-file-if-exists=.env ledger.js",
-    "ecw-check": "node --env-file-if-exists=.env ecw-check.js"
+    "ecw-check": "node --env-file-if-exists=.env ecw-check.js",
+    "ecw-upload": "node --env-file-if-exists=.env ecw-upload.js"
   },
   "dependencies": {
     "7zip-bin": "5.2.0",
