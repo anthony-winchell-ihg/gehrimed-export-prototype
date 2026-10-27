@@ -35,6 +35,17 @@ export const manifestFile = path.join(
 export const uploadsFile = path.join(path.dirname(stateFile), "uploads.json"); // eCW uploads per encounter: IDs, statuses, reasons only
 export const ecwProfileDir = path.join(path.dirname(stateFile), "ecw-profile"); // eCW browser profile: holds a logged-in session (git-ignored)
 export const ecwLockFile = path.join(path.dirname(stateFile), "ecw.lock"); // one eCW run at a time (they'd share the profile)
+// eCW live mode (ecw-watch.js). Its own hours, so it runs after the exporter rather than alongside it.
+export const ecwWatchIntervalMinutes = Number(process.env.ECW_WATCH_INTERVAL_MINUTES || 30);
+export const ecwActiveHours = parseActiveHours(
+  process.env.ECW_ACTIVE_HOURS || "08:30-17:30",
+  process.env.ECW_ACTIVE_DAYS || "mon-fri",
+);
+// "check" (default: changes nothing) or "upload" (also needs ECW_AUTOMATIC_UPLOADS=on).
+export const ecwUploadMode = process.env.ECW_UPLOAD_MODE || "check";
+// The cutover agreed with billing: only encounters SIGNED on or after this date
+// (yyyy-MM-dd) are uploaded; billing keeps uploading older ones by hand.
+export const ecwUploadSignedFrom = process.env.ECW_UPLOAD_SIGNED_FROM || null;
 export const debugDir = path.resolve(projectDir, "debug"); // snapshots: structure only, no patient data
 export const logDir = path.resolve(projectDir, process.env.LOG_DIR || "logs"); // daily logs: IDs and counts only
 export const watchIntervalMinutes = Number(
