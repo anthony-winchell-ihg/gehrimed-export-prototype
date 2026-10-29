@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendManifest, sha256File } from "../src/manifest.js";
+import { stagePdf } from "../src/staging.js";
 import { MOCK_ECW_LOGIN, startMockEcw } from "./mock-ecw.js";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -62,6 +63,18 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
     await appendManifest(path.join(stateDir, "manifest.jsonl"), [
       { encounterId, patientId, dateOfService: "2026-10-12", signedOn, sha256: await sha256File(file) },
     ]);
+  };
+  /** Same, plus the private staging copy the export now keeps, with the name as GEHRIMed shows it. */
+  const exportedAndStaged = async (encounterId, patientId, fileName, signedOn, { lastName, dateOfBirth }) => {
+    await exported(encounterId, patientId, fileName, signedOn);
+    const file = path.join(outputDir, signedOn, fileName);
+    await stagePdf(path.join(stateDir, "staging"), file, await sha256File(file), {
+      encounterId,
+      lastName,
+      dateOfBirth,
+      dateOfService: "2026-10-12",
+    });
+    return file;
   };
   const uploadsJson = async () => JSON.parse(await fs.readFile(path.join(stateDir, "uploads.json"), "utf8"));
 
@@ -131,6 +144,43 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
     assert.match(out, /JR \(signed 2026-10-26\): uploaded \(last name matched ignoring a Jr\/Sr\/II\/III\/IV suffix\)/);
     assert.equal((await uploadsJson()).uploads.JR.status, "uploaded");
     assert.deepEqual(mock.state.uploads.map((u) => u.externalMrn), ["GM100008"]);
+  });
+
+  it("uploads the staged copy, then moves the Teams PDF into Uploaded\\ and deletes the staged copy", async () => {
+    mock = await startMockEcw({ requireLogin: true, confirmEmailAfterMs: 500 });
+    const kept = await exportedAndStaged("E1", "GM100001", "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf", MONDAY, {
+      lastName: "TESTLASTA",
+      dateOfBirth: "1940-01-02",
+    });
+    const taken = await exportedAndStaged("JR", "GM100008", "TestlasthjrPath_DOB08.09.1947_DOS10.12.2026.pdf", MONDAY, {
+      lastName: "TESTLASTH JR.",
+      dateOfBirth: "1947-08-09",
+    });
+    await fs.rm(taken); // billing already took this one out of the Teams folder
+
+    const { code, out } = await watchOnce(uploading());
+    assert.equal(code, 0, out);
+    assert.match(out, /E1 \(signed 2026-10-26\): uploaded/);
+    assert.match(out, /JR \(signed 2026-10-26\): uploaded \(last name matched ignoring/);
+    assert.match(out, /Moved 1 uploaded PDF\(s\) into Uploaded\\/);
+    assert.deepEqual(mock.state.uploads.map((u) => u.externalMrn).sort(), ["GM100001", "GM100008"]);
+
+    const dayDir = path.dirname(kept);
+    assert.deepEqual(await fs.readdir(dayDir), ["Uploaded"]); // nothing left for billing to do
+    assert.deepEqual(await fs.readdir(path.join(dayDir, "Uploaded")), [path.basename(kept)]);
+    assert.deepEqual(await fs.readdir(path.join(stateDir, "staging")), []); // patient data gone once uploaded
+  });
+
+  it("check mode moves nothing and deletes nothing", async () => {
+    mock = await startMockEcw({ requireLogin: true, confirmEmailAfterMs: 500 });
+    const file = await exportedAndStaged("E1", "GM100001", "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf", MONDAY, {
+      lastName: "TESTLASTA",
+      dateOfBirth: "1940-01-02",
+    });
+    const { code, out } = await watchOnce(envFor());
+    assert.equal(code, 0, out);
+    await fs.access(file);
+    assert.equal((await fs.readdir(path.join(stateDir, "staging"))).length, 2);
   });
 
   it("stops logging in after ONE wrong password", async () => {

@@ -34,6 +34,7 @@ export const manifestFile = path.join(
 );
 export const uploadsFile = path.join(path.dirname(stateFile), "uploads.json"); // eCW uploads per encounter: IDs, statuses, reasons only
 export const ecwProfileDir = path.join(path.dirname(stateFile), "ecw-profile"); // eCW browser profile: holds a logged-in session (git-ignored)
+export const stagingDir = path.join(path.dirname(stateFile), "staging"); // private copies of PDFs awaiting the eCW upload — PATIENT DATA (src/staging.js)
 export const ecwLockFile = path.join(path.dirname(stateFile), "ecw.lock"); // one eCW run at a time (they'd share the profile)
 // eCW live mode (ecw-watch.js). Its own hours, so it runs after the exporter rather than alongside it.
 export const ecwWatchIntervalMinutes = Number(process.env.ECW_WATCH_INTERVAL_MINUTES || 30);

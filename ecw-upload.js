@@ -27,6 +27,7 @@ import {
   ecwProfileDir,
   manifestFile,
   outputDir,
+  stagingDir,
   stateFile,
   uploadsFile,
 } from "./src/config.js";
@@ -34,6 +35,7 @@ import { acquireLock } from "./src/lock.js";
 import { loadUploads } from "./src/uploads.js";
 import { encountersToCheck } from "./src/ecw/checkList.js";
 import { UncertainUploadError, processEncounter } from "./src/ecw/pipeline.js";
+import { describeTidy, tidyUploaded } from "./src/ecw/tidy.js";
 import { openEcw } from "./src/ecw/session.js";
 
 const MODES = ["check", "confirm", "upload"];
@@ -90,7 +92,7 @@ try {
 }
 
 const uploads = await loadUploads(uploadsFile);
-const all = await encountersToCheck({ manifestFile, outputDir, day: dayLabel });
+const all = await encountersToCheck({ manifestFile, outputDir, stagingDir, day: dayLabel });
 const items = args.encounter.length
   ? all.filter((i) => args.encounter.includes(i.encounterId))
   : all;
@@ -198,6 +200,15 @@ const line = Object.entries(summary)
 console.log(`\n📋 ${line || "nothing to do"}`);
 console.log(`   Report: ${reportFile}`);
 if (writes) {
+  // Uploaded PDFs → <day>\Uploaded\, staged copies deleted (src/ecw/tidy.js).
+  try {
+    const tidied = describeTidy(
+      await tidyUploaded({ manifestFile, outputDir, stagingDir, days: [dayLabel], uploads }),
+    );
+    if (tidied) console.log(`\n${tidied}`);
+  } catch (e) {
+    console.error(`⚠️  Couldn't tidy up uploaded PDFs: ${e.message.split("\n")[0]}`);
+  }
   const manual = uploads.needsManual();
   if (manual.length) {
     console.log(`\n🙋 Manual list (${manual.length}):`);

@@ -17,6 +17,7 @@ import { extractPdfs } from "./archive/sevenZip.js";
 import { buildPdfName, parseGehrimedDate } from "./naming.js";
 import { logDetails } from "./logger.js";
 import { appendManifest, sha256File } from "./manifest.js";
+import { stagePdf } from "./staging.js";
 
 const MAX_FAILURES_IN_A_ROW = 5;
 
@@ -31,6 +32,7 @@ const MAX_FAILURES_IN_A_ROW = 5;
  * @param o.onFailure         async (error) => void — e.g. save a debug snapshot
  * @param o.ledger            optional, from loadLedger() — this check's counts are recorded there
  * @param o.manifestFile      optional — one line per saved PDF is appended (see manifest.js)
+ * @param o.stagingDir        optional — a private copy of each PDF for the eCW upload (see staging.js)
  * @returns {Promise<{ found, alreadyExported, saved, failed, givenUp, testPatients, notShown }>}
  *   notShown > 0 means GEHRIMed reported more results than its page showed —
  *   those were never attempted, so the day must not count as complete.
@@ -67,6 +69,7 @@ const exportDay = async (
     limit = 0,
     onFailure,
     manifestFile,
+    stagingDir,
   },
   dayLabel,
   counts,
@@ -146,16 +149,29 @@ const exportDay = async (
         );
 
         await fs.mkdir(dayDir, { recursive: true });
+        const dateOfService =
+          parseGehrimedDate(details.dateOfService)?.toISODate() ?? null;
         const entries = [];
         for (const pdf of pdfs) {
+          const sha256 = await sha256File(pdf);
+          // The eCW upload's private copy goes first: if it fails, nothing has
+          // been published yet, so the retry can't leave a _2 duplicate.
+          if (stagingDir) {
+            await stagePdf(stagingDir, pdf, sha256, {
+              encounterId,
+              lastName: details.lastName,
+              dateOfBirth:
+                parseGehrimedDate(details.dateOfBirth)?.toISODate() ?? null,
+              dateOfService,
+            });
+          }
           await publish(pdf, dayDir, baseName);
           entries.push({
             encounterId,
             patientId: details.patientId,
-            dateOfService:
-              parseGehrimedDate(details.dateOfService)?.toISODate() ?? null,
+            dateOfService,
             signedOn: dayLabel,
-            sha256: await sha256File(pdf),
+            sha256,
             exportedAt: new Date().toISOString(),
           });
         }

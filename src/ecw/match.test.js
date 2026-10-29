@@ -77,6 +77,14 @@ describe("decideMatch", () => {
       }
     });
 
+    it("handles GEHRIMed's last name as staged, with its spaces and punctuation", () => {
+      assert.match(decide("TESTLAST", "Testlast Jr.").note, /suffix/);
+      assert.match(decide("TEST-LAST", "Test Last, III").note, /suffix/);
+      assert.deepEqual(decide("TESTLAST JR", "Testlast Jr."), { result: "match" });
+      assert.equal(decide("TESTLAST SR", "Testlast Jr.").result, "mismatch");
+      assert.equal(decide("TESTLAST", "Otherlast Jr.").result, "mismatch");
+    });
+
     it("matches the same suffix on both sides, with no note", () => {
       assert.deepEqual(decide("TESTLAST JR", "Testlastjr"), { result: "match" });
     });

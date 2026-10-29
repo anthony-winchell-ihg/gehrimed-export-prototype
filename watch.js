@@ -30,6 +30,7 @@ import {
   stateFile,
   ledgerFile,
   manifestFile,
+  stagingDir,
   watchIntervalMinutes,
   retentionDays,
   stateRetentionDays,
@@ -119,6 +120,7 @@ const check = async () => {
       password: randomPassword(),
       ledger,
       manifestFile,
+      stagingDir,
       onFailure: async (e) => {
         if (!snapshotTaken) await snapshotOnFailure(session.page, e); // one snapshot per day per check
         snapshotTaken = true;
@@ -174,6 +176,9 @@ const cleanUp = async () => {
   if (snaps) log(`🧹 Deleted ${snaps} old debug snapshot(s)`);
   const logs = await deleteOldFiles(logDir, retentionDays);
   if (logs) log(`🧹 Deleted ${logs} old log file(s)`);
+  // Private copies for the eCW upload (patient data) that were never uploaded — e.g. on the manual list.
+  const staged = await deleteOldFiles(stagingDir, retentionDays);
+  if (staged) log(`🧹 Deleted ${staged} old staged file(s) (copies kept for the eCW upload)`);
   const temps = await deleteStaleTempFolders(os.tmpdir());
   if (temps) log(`🧹 Deleted ${temps} leftover temp folder(s) (could hold decrypted PDFs from a crash)`);
   await state.pruneBefore(today.minus({ days: stateRetentionDays }).toFormat("yyyy-MM-dd"));

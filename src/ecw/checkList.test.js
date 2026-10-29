@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { appendManifest, sha256File } from "../manifest.js";
+import { stagePdf } from "../staging.js";
 import { encountersToCheck } from "./checkList.js";
 
 const DAY = "2026-10-13";
@@ -124,6 +125,65 @@ describe("encountersToCheck", () => {
     assert.match(problems.E2, /not in the expected format/);
     assert.match(problems.E3, /date of service doesn't match/);
     assert.match(problems.E4, /no GEHRIMed patient ID/);
+  });
+
+  describe("with the private staging copy", () => {
+    let stagingDir;
+    beforeEach(() => (stagingDir = path.join(dir, "staging")));
+
+    /** Like the export: staged copy first, then the Teams file, then the manifest. */
+    const exportedAndStaged = async (details) => {
+      const file = await exported(details);
+      await stagePdf(stagingDir, file, await sha256File(file), {
+        encounterId: details.encounterId,
+        lastName: "Testlasta Jr.",
+        dateOfBirth: "1940-01-02",
+        dateOfService: details.dateOfService ?? "2026-10-12",
+        ...details.staged,
+      });
+      return file;
+    };
+    const check = () => encountersToCheck({ manifestFile, outputDir, stagingDir, day: DAY });
+
+    it("uploads the staged copy, with the last name as GEHRIMed shows it", async () => {
+      await exportedAndStaged({ encounterId: "E1", fileName: "TestlastajrPata_DOB01.02.1940_DOS10.12.2026.pdf" });
+      const [item] = await check();
+      assert.equal(item.problem, undefined);
+      assert.equal(item.expected.lastName, "Testlasta Jr.");
+      assert.equal(item.expected.dateOfBirth.toISODate(), "1940-01-02");
+      assert.equal(path.dirname(item.pdfPath), stagingDir);
+    });
+
+    it("doesn't need the Teams copy at all — billing may have moved, renamed or opened it", async () => {
+      const file = await exportedAndStaged({ encounterId: "E1", fileName: "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf" });
+      await fs.rm(file);
+      const [item] = await check();
+      assert.equal(item.problem, undefined);
+    });
+
+    it("reports a staged copy whose details don't match the export record", async () => {
+      await exportedAndStaged({
+        encounterId: "E1",
+        fileName: "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf",
+        staged: { dateOfService: "2026-10-11" },
+      });
+      assert.match((await check())[0].problem, /don't match the export record/);
+    });
+
+    it("falls back to the Teams folder for PDFs exported before staging existed", async () => {
+      await exported({ encounterId: "E1", fileName: "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf" });
+      const [item] = await check();
+      assert.equal(item.problem, undefined);
+      assert.equal(item.expected.lastName, "Testlasta");
+    });
+  });
+
+  it("refuses an encounter the export saved more than one PDF for (only one would ever be uploaded)", async () => {
+    await exported({ encounterId: "E1", fileName: "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf" });
+    await exported({ encounterId: "E1", fileName: "TestlastaPata_DOB01.02.1940_DOS10.12.2026_2.pdf" });
+    const items = await encountersToCheck({ manifestFile, outputDir, day: DAY });
+    assert.equal(items.length, 2);
+    for (const i of items) assert.match(i.problem, /more than one PDF/);
   });
 
   it("copes with a day folder that's gone (e.g. deleted after 7 days)", async () => {

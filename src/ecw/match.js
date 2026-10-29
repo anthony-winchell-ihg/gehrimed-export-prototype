@@ -23,12 +23,13 @@ const normalizeName = (s) =>
     .toUpperCase();
 
 // Generational suffixes. eCW keeps a suffix in its own field, so its Last Name
-// column says "Smith"; GEHRIMed may have "Smith Jr." as the last name, which the
-// export's file name glues together ("Smithjr" — the spaces are gone).
+// column says "Smith"; GEHRIMed may have "Smith Jr." as the last name. The
+// staged copy keeps that as it is; the export's file name glues it together
+// ("Smithjr" — the spaces are gone).
 const SUFFIXES = ["JR", "SR", "II", "III", "IV"];
 const SUFFIX_WORD = /[\s,.]+(JR|SR|II|III|IV)\.?\s*$/i; // needs a separator: "Smith Jr.", "SMITH, III"
 
-/** Splits eCW's last name into base and suffix: "Smith Jr." → { base: "SMITH", suffix: "JR" }. */
+/** Splits a last name into base and suffix: "Smith Jr." → { base: "SMITH", suffix: "JR" }. */
 const splitSuffix = (raw) => {
   const text = String(raw ?? "");
   const m = SUFFIX_WORD.exec(text);
@@ -42,13 +43,15 @@ const splitSuffix = (raw) => {
  * ignored) or "differs". Two different suffixes (Jr vs Sr) differ: that's
  * father and son.
  */
-const compareLastNames = (foundRaw, expectedName) => {
-  if (normalizeName(foundRaw) === expectedName) return "same";
-  const { base, suffix } = splitSuffix(foundRaw);
-  if (!base) return "differs";
-  if (suffix && expectedName === base) return "suffix"; // only eCW has one
-  if (!suffix && SUFFIXES.some((s) => expectedName === base + s))
-    return "suffix"; // only GEHRIMed has one, glued on
+const compareLastNames = (foundRaw, expectedRaw) => {
+  if (normalizeName(foundRaw) === normalizeName(expectedRaw)) return "same";
+  const found = splitSuffix(foundRaw);
+  const expected = splitSuffix(expectedRaw);
+  if (!found.base || !expected.base) return "differs";
+  if (found.suffix && expected.suffix) return "differs"; // both have one, and they're not the same
+  if (found.base === expected.base) return "suffix"; // only one side has one
+  if (!found.suffix && SUFFIXES.some((s) => expected.base === found.base + s))
+    return "suffix"; // only GEHRIMed has one, glued on by the file name
   return "differs";
 };
 
@@ -93,7 +96,7 @@ export const decideMatch = (results, expected) => {
     return { result: "mismatch", reason: "unreadable DOB in eCW" };
   if (foundDob.toISODate() !== expected.dateOfBirth.toISODate())
     return { result: "mismatch", reason: "DOB differs" };
-  const lastName = compareLastNames(found.lastName, expectedName);
+  const lastName = compareLastNames(found.lastName, expected.lastName);
   if (lastName === "differs")
     return { result: "mismatch", reason: "last name differs" };
   if (lastName === "suffix")

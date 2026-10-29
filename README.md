@@ -10,8 +10,9 @@ date, named the way billing asked:
 It works through the GEHRIMed **web client** (Playwright), because the
 Netsmart API isn't available to us yet.
 
-**Everything this produces contains patient data.** Output, state, debug
-snapshots and all `.pdf/.zip/.7z/.csv/.xlsx` files are git-ignored.
+**Everything this produces contains patient data.** Output, state (including
+the eCW staging copies in `state\staging\`), debug snapshots and all
+`.pdf/.zip/.7z/.csv/.xlsx` files are git-ignored.
 
 ## Setup (once)
 
@@ -119,6 +120,21 @@ when exactly one chart has that MRN **and** the DOB and last name agree. A
 Jr/Sr/II/III/IV suffix on one side only is ignored (eCW keeps suffixes in a
 separate field); two different suffixes never match. Results go to
 `state\uploads.json` and `logs\ecw-watch-yyyy-MM-dd.log` (IDs only).
+
+**What billing sees in the Teams folder:** once a note is uploaded, its PDF is
+moved into `<day>\Uploaded\` (never deleted, never overwritten — a taken name
+gets `_2`). So what's left at the top of a day folder still needs a person: it's
+on the manual list, or not uploaded yet. If a PDF is open in another program the
+move waits for the next check. The 7-day cleanup removes `Uploaded\` with its
+day folder.
+
+**Staging copy:** the export also keeps a private copy of each PDF in
+`state\staging\` (this computer only, git-ignored), with the last name and DOB
+exactly as GEHRIMed shows them. The upload uses that copy, so it doesn't matter
+if billing moves, renames or opens the Teams file first. **It holds patient
+data:** each copy is deleted once uploaded, and watch mode deletes any older
+than `RETENTION_DAYS`. PDFs exported before staging existed are still uploaded
+from the Teams folder.
 
 Settings (`.env`): `ECW_USERNAME`, `ECW_PASSWORD`, `ECW_UPLOAD_MODE=upload`,
 `ECW_AUTOMATIC_UPLOADS=on`, `ECW_UPLOAD_SIGNED_FROM=yyyy-MM-dd` (the cutover

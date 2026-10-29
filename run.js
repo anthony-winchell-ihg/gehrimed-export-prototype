@@ -22,6 +22,7 @@ import {
   outputDir,
   randomPassword,
   snapshotOnFailure,
+  stagingDir,
   stateFile,
 } from "./src/config.js";
 import { loadLedger } from "./src/ledger.js";
@@ -79,6 +80,7 @@ try {
     limit,
     ledger,
     manifestFile,
+    stagingDir,
     onFailure: async (e) => {
       await snapshotOnFailure(page, e);
       if (args.debug) await page.pause();

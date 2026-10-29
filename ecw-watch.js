@@ -10,6 +10,9 @@
 // (ECW_UPLOAD_SIGNED_FROM) or RETENTION_DAYS back, whichever is later, to
 // today — and skips encounters state/uploads.json already has. So after a
 // weekend, Monday's first check picks up what the exporter caught up on.
+// It uploads the exporter's private staging copy (state/staging) when there is
+// one, and afterwards moves the uploaded PDF in the Teams folder into
+// <day>\Uploaded\ (src/ecw/tidy.js) — so billing sees what's left to do.
 // (Without a cutover date — check mode only — it looks at today's exports.)
 //
 // Settings (.env):
@@ -37,6 +40,7 @@ import { logDetails, startFileLogging } from "./src/logger.js";
 import { loadUploads } from "./src/uploads.js";
 import { encountersToCheck } from "./src/ecw/checkList.js";
 import { UncertainUploadError, processEncounter } from "./src/ecw/pipeline.js";
+import { describeTidy, tidyUploaded } from "./src/ecw/tidy.js";
 import { SignInError, openEcw } from "./src/ecw/session.js";
 import {
   ecwActiveHours,
@@ -49,6 +53,7 @@ import {
   manifestFile,
   outputDir,
   retentionDays,
+  stagingDir,
   uploadsFile,
 } from "./src/config.js";
 
@@ -146,7 +151,7 @@ const check = async () => {
   const totals = { uploaded: 0, ready: 0, manual: 0, error: 0 };
   let errorsInARow = 0;
   for (const day of daysToScan(todayNY())) {
-    const waiting = (await encountersToCheck({ manifestFile, outputDir, day })).filter((i) =>
+    const waiting = (await encountersToCheck({ manifestFile, outputDir, stagingDir, day })).filter((i) =>
       mode === "check" ? !checkedThisRun.has(i.encounterId) : uploads.readyToUpload(i.encounterId),
     );
     for (const item of waiting) {
@@ -245,6 +250,18 @@ while (!stopping) {
       log(`🙋 Manual list: ${manual.length} encounter(s) need a person:`);
       for (const m of manual) log(`   ${m.encounterId}: ${m.reason}`);
       lastManualCount = manual.length;
+    }
+  }
+  // Uploaded PDFs → <day>\Uploaded\, staged copies deleted. Also while stopped:
+  // an encounter a person marked uploaded is tidied too. Check mode moves nothing.
+  if (!recordError && mode !== "check") {
+    try {
+      const tidied = describeTidy(
+        await tidyUploaded({ manifestFile, outputDir, stagingDir, days: daysToScan(todayNY()), uploads }),
+      );
+      if (tidied) log(tidied);
+    } catch (e) {
+      log(`⚠️  Couldn't tidy up uploaded PDFs: ${e.message.split("\n")[0]} — tries again next check`);
     }
   }
   if (args.once || stopping) break;

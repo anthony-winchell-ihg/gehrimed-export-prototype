@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { isPdf } from "../src/archive/sevenZip.js";
 import { isEncryptedPdf } from "../src/archive/pdf.js";
 import { readManifest, sha256File } from "../src/manifest.js";
+import { readStaged } from "../src/staging.js";
 import {
   MOCK_DAYS,
   MOCK_LOGIN,
@@ -135,6 +136,15 @@ for (const mode of ["pdf", "zip"]) {
             await fs.readFile(path.join(stateDir, "manifest.jsonl"), "utf8"),
             /PAT[A-Z]|TESTLAST|Testlast/,
           );
+
+          // Staging: a private copy of every PDF for the eCW upload, with the
+          // last name and DOB as GEHRIMed shows them.
+          for (const m of manifest) {
+            const staged = await readStaged(path.join(stateDir, "staging"), m.sha256);
+            assert.equal(staged?.encounterId, m.encounterId);
+            assert.match(staged.lastName, /^TESTLAST[A-Z]$/);
+            assert.equal(staged.dateOfBirth.isValid, true);
+          }
 
           // Ledger: the day's counts, no names or IDs.
           const ledgerText = await fs.readFile(

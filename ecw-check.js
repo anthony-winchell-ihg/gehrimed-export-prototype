@@ -20,6 +20,7 @@ import {
   ecwProfileDir,
   manifestFile,
   outputDir,
+  stagingDir,
   stateFile,
 } from "./src/config.js";
 import { acquireLock } from "./src/lock.js";
@@ -68,7 +69,7 @@ try {
   process.exit(3);
 }
 
-const all = await encountersToCheck({ manifestFile, outputDir, day: dayLabel });
+const all = await encountersToCheck({ manifestFile, outputDir, stagingDir, day: dayLabel });
 const items = limit ? all.slice(0, limit) : all;
 console.log(
   `🔎 ${dayLabel}: ${all.length} exported encounter(s)${limit ? `, checking the first ${items.length}` : ""}`,
