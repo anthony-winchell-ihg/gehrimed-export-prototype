@@ -46,6 +46,62 @@ describe("decideMatch", () => {
     assert.match(d.reason, /last name/);
   });
 
+  describe("Jr / Sr / II / III / IV suffixes", () => {
+    // The expected last name comes from the export's file name, where
+    // GEHRIMed's "Testlast Jr." has become "Testlastjr".
+    const dob = expected.dateOfBirth;
+    const decide = (ecwLastName, expectedLastName) =>
+      decideMatch([row({ lastName: ecwLastName })], {
+        lastName: expectedLastName,
+        dateOfBirth: dob,
+      });
+
+    it("matches when only GEHRIMed's last name has the suffix (glued on by the file name)", () => {
+      for (const [ecw, ours] of [
+        ["TESTLAST", "Testlastjr"],
+        ["Testlast", "Testlastsr"],
+        ["TESTLAST", "Testlastiii"],
+        ["Test-Last", "Testlastiv"],
+      ]) {
+        const d = decide(ecw, ours);
+        assert.equal(d.result, "match", `${ecw} / ${ours}`);
+        assert.match(d.note, /suffix/);
+      }
+    });
+
+    it("matches when only eCW's last name has the suffix", () => {
+      for (const ecw of ["TESTLAST JR", "Testlast Jr.", "TESTLAST, SR", "Testlast II"]) {
+        const d = decide(ecw, "Testlast");
+        assert.equal(d.result, "match", ecw);
+        assert.match(d.note, /suffix/);
+      }
+    });
+
+    it("matches the same suffix on both sides, with no note", () => {
+      assert.deepEqual(decide("TESTLAST JR", "Testlastjr"), { result: "match" });
+    });
+
+    it("rejects two different suffixes (Jr vs Sr is father and son)", () => {
+      assert.equal(decide("TESTLAST SR", "Testlastjr").result, "mismatch");
+      assert.equal(decide("TESTLAST II", "Testlastiii").result, "mismatch");
+    });
+
+    it("rejects anything else glued on, and a suffix with no name in front", () => {
+      assert.equal(decide("TESTLAST", "Testlastx").result, "mismatch");
+      assert.equal(decide("TESTLAST", "Testlastjrx").result, "mismatch");
+      assert.equal(decide("JR", "Testlast").result, "mismatch");
+      assert.equal(decide("TESTLASTJR", "Testlast").result, "mismatch"); // no space: not a suffix word
+    });
+
+    it("still checks the DOB first", () => {
+      const d = decideMatch([row({ lastName: "TESTLAST", dob: "04/10/1931" })], {
+        lastName: "Testlastjr",
+        dateOfBirth: dob,
+      });
+      assert.deepEqual(d, { result: "mismatch", reason: "DOB differs" });
+    });
+  });
+
   it("rejects an unreadable or missing DOB", () => {
     assert.equal(
       decideMatch([row({ dob: "not a date" })], expected).result,

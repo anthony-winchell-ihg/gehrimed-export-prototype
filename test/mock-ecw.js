@@ -61,6 +61,8 @@ export const MOCK_ECW_PATIENTS = [
   { id: "300007", externalMrn: "GM100006", lastName: "TESTLASTF", firstName: "PATF", dob: "06/07/1945", acctNo: "50007", mergeSource: true },
   // Opens, but the Hub marks it inactive.
   { id: "300008", externalMrn: "GM100007", lastName: "TESTLASTG", firstName: "PATG", dob: "07/08/1946", acctNo: "50008", inactive: true },
+  // eCW keeps the suffix in its own field; GEHRIMed has "Testlasth Jr." as the last name.
+  { id: "300009", externalMrn: "GM100008", lastName: "TESTLASTH", firstName: "PATH", dob: "08/09/1947", acctNo: "50009" },
 ];
 
 /** Patient Docs folders shown in the fake (a few of the real ones, real IDs). Chart Documents = 2. */
@@ -112,7 +114,7 @@ const escapeHtml = (s) =>
       ],
   );
 
-const pageHtml = ({ appReadyDelayMs, flattenWarning }) => `<!doctype html>
+const pageHtml = ({ appReadyDelayMs, flattenWarning, staleCountAfterUpload, uploadErrorDialog }) => `<!doctype html>
 <html><head><title>eCW (Mock, User)</title>
 <style>.hidden{display:none} .modal{border:1px solid #888;padding:8px;margin:8px} td,th{border:1px solid #ccc;padding:2px 6px}</style>
 </head><body>
@@ -331,7 +333,9 @@ const pageHtml = ({ appReadyDelayMs, flattenWarning }) => `<!doctype html>
     $("#fileUpload").value = "";
     if (status === "success") {
       if ($("#addDescription").checked) $("#documentDetails").classList.remove("hidden");
-      await renderTree();
+      if (!${staleCountAfterUpload}) await renderTree(); // stale: the label only updates when the folder is opened again
+    } else if (${uploadErrorDialog}) {
+      showDialog("eClinicalWorks", "Error while uploading the document.", [["OK", "ok"]]);
     }
   };
   // Like real eCW: every change that leaves 2+ characters clears the results,
@@ -449,6 +453,8 @@ const readBody = (req) =>
  *   flattenWarning: true (default) shows the "PDF Flatten" warning; false = this user switched it off (choosing a file uploads at once)
  *   documents: documents already in charts, e.g. [{ patientId: "300001", catid: 2, customName: "2026-10-12 Progress Note" }]
  *   failUploads: true = eCW answers uploads with a failure and stores nothing
+ *   uploadErrorDialog: with failUploads, eCW also shows an error dialog
+ *   staleCountAfterUpload: true = after an upload the folder label keeps the old count until the folder is opened again
  */
 export const startMockEcw = async ({
   patients = MOCK_ECW_PATIENTS,
@@ -459,6 +465,8 @@ export const startMockEcw = async ({
   flattenWarning = true,
   documents = [],
   failUploads = false,
+  uploadErrorDialog = false,
+  staleCountAfterUpload = false,
 } = {}) => {
   // What the browser did — tests check these (e.g. deletes must stay 0).
   const state = {
@@ -492,7 +500,7 @@ export const startMockEcw = async ({
       redirect(PATHS.home);
     } else if (url.pathname === PATHS.home) {
       if (requireLogin && !sessions.has(cookies.ecw_session)) redirect(PATHS.login);
-      else html(pageHtml({ appReadyDelayMs, flattenWarning }));
+      else html(pageHtml({ appReadyDelayMs, flattenWarning, staleCountAfterUpload, uploadErrorDialog }));
     } else if (url.pathname === PATHS.login) {
       html(loginPageHtml());
     } else if (url.pathname === PATHS.password && req.method === "POST") {
@@ -594,6 +602,8 @@ export const startMockEcw = async ({
     confirmEmail,
     /** Simulates eCW ending every session (timeout): the next page load goes to the login page. */
     expireSessions: () => sessions.clear(),
+    /** Turns failing uploads on or off while the fake is running. */
+    setFailUploads: (fail) => (failUploads = fail),
     close: () => {
       server.closeAllConnections();
       return new Promise((resolve) => server.close(resolve));

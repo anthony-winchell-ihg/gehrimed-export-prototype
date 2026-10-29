@@ -37,7 +37,8 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
   });
   afterEach(async () => {
     await mock?.close();
-    await fs.rm(tmp, { recursive: true, force: true });
+    // Retries: a browser from a killed watcher may hold its profile for a moment (Windows).
+    await fs.rm(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   });
 
   const envFor = (overrides = {}) => ({
@@ -122,6 +123,16 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
     assert.equal(mock.state.promptsAnsweredYes, 0);
   });
 
+  it("uploads a patient whose GEHRIMed last name has a Jr. suffix (eCW keeps it separately), and says so", async () => {
+    mock = await startMockEcw({ requireLogin: true, confirmEmailAfterMs: 500 });
+    await exported("JR", "GM100008", "TestlasthjrPath_DOB08.09.1947_DOS10.12.2026.pdf", MONDAY); // how the export names "Testlasth Jr."
+    const { code, out } = await watchOnce(uploading());
+    assert.equal(code, 0, out);
+    assert.match(out, /JR \(signed 2026-10-26\): uploaded \(last name matched ignoring a Jr\/Sr\/II\/III\/IV suffix\)/);
+    assert.equal((await uploadsJson()).uploads.JR.status, "uploaded");
+    assert.deepEqual(mock.state.uploads.map((u) => u.externalMrn), ["GM100008"]);
+  });
+
   it("stops logging in after ONE wrong password", async () => {
     mock = await startMockEcw({ requireLogin: true });
     await exported("E1", "GM100001", "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf", MONDAY);
@@ -141,6 +152,51 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
     assert.match(out, /Stopped uploading/);
     assert.equal((await uploadsJson()).uploads.E1.status, "started");
     assert.equal((await uploadsJson()).uploads.E3, undefined); // never tried after the uncertain one
+  });
+
+  it("after an uncertain upload, starts again once a person runs ecw-resolve — same browser, no new login", async () => {
+    mock = await startMockEcw({ requireLogin: true, confirmEmailAfterMs: 500, failUploads: true });
+    await exported("E1", "GM100001", "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf", MONDAY);
+    await exported("E3", "GM100003", "TestlastcPatc_DOB03.04.1942_DOS10.12.2026.pdf", MONDAY);
+
+    // Live mode, checking every 3 seconds, around the clock.
+    const env = uploading({ ECW_ACTIVE_HOURS: "always", ECW_ACTIVE_DAYS: "all" });
+    const child = spawn(process.execPath, ["ecw-watch.js", "--interval", "0.05", "--today", MONDAY], {
+      cwd: root,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    const waitFor = async (pattern, ms = 120_000) => {
+      for (const deadline = Date.now() + ms; !pattern.test(out); ) {
+        if (Date.now() > deadline || child.exitCode !== null) throw new Error(`never saw ${pattern}:\n${out}`);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    };
+    try {
+      await waitFor(/Stopped uploading/);
+      await waitFor(/Not checking: not sure encounter E1/); // stays stopped on later checks
+      assert.equal((await uploadsJson()).uploads.E1.status, "started");
+
+      // A person checks the chart: it's not there. eCW works again.
+      mock.setFailUploads(false);
+      const resolved = await runNode("ecw-resolve.js", env, ["E1", "--retry"]);
+      assert.equal(resolved.code, 0, resolved.out);
+
+      await waitFor(/E1 was checked by a person \(set to be tried again\) — uploading again/);
+      await waitFor(/E3 \(signed 2026-10-26\): uploaded/);
+      await waitFor(/E1 \(signed 2026-10-26\): uploaded/);
+      assert.equal(mock.state.logins, 1); // the browser was kept: no second login or email
+      assert.equal(mock.state.emailsSent, 1);
+    } finally {
+      if (child.exitCode === null) {
+        const closed = new Promise((r) => child.once("close", r));
+        child.kill();
+        await closed;
+      }
+    }
   });
 
   it("writes its log to logs/ecw-watch-<date>.log, with no names or dates of birth", async () => {

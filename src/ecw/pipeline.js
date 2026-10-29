@@ -49,10 +49,12 @@ export const processEncounter = async (page, item, { mode, uploads, credentials,
     const match = decideMatch(await findByExternalMrn(page, item.externalMrn), item.expected);
     if (match.result !== "match") return needsPerson(`${match.result}: ${match.reason}`);
 
+    const note = match.note ? `; ${match.note}` : ""; // e.g. matched ignoring a Jr/Sr suffix
+
     const hub = await openPatientHub(page);
     await checkHubIdentity(hub, { externalMrn: item.externalMrn, dateOfBirth: item.expected.dateOfBirth });
     const count = await openChartDocuments(page, hub);
-    if (!writes) return { result: "ready", reason: `would upload here; Chart Documents has ${count}` };
+    if (!writes) return { result: "ready", reason: `would upload here; Chart Documents has ${count}${note}` };
 
     const outcome = await uploadToChartDocuments(page, {
       pdfPath: item.pdfPath,
@@ -66,12 +68,15 @@ export const processEncounter = async (page, item, { mode, uploads, credentials,
     });
     if (!outcome.uploaded) return needsPerson(outcome.reason);
     await uploads.markUploaded(item.encounterId, item.dateOfService);
-    return { result: "uploaded" };
+    return note ? { result: "uploaded", reason: note.slice(2) } : { result: "uploaded" };
   } catch (e) {
     if (e instanceof SignInError) throw e;
     if (e instanceof NeedsPersonError) return needsPerson(e.message);
     const reason = e.message.split("\n")[0];
-    if (started) throw new UncertainUploadError(item.encounterId, reason);
+    if (started) {
+      await uploads.markUncertain(item.encounterId, reason).catch(() => {}); // stays "started"; the reason is for the manual list
+      throw new UncertainUploadError(item.encounterId, reason);
+    }
     if (writes) await uploads.markFailed(item.encounterId); // nothing was written: it may be retried
     return { result: "error", reason };
   }

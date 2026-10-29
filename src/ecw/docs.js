@@ -17,6 +17,7 @@ const LOOKUP = "#pt-lookup-modal-dialog";
 const HUB = "#patient_hub";
 const DOCS = "#modalPatientDocs";
 const CHART_DOCUMENTS = "a#pt_2"; // eCW's folder ID for Chart Documents (mapped 2026-10-21)
+export const CHART_DOCUMENTS_FOLDER = `${DOCS} ${CHART_DOCUMENTS}`; // the folder in the open Patient Docs window
 // Any dialog other than the search window and the Hub. Their exact markup is
 // an assumption until seen on live eCW, so this is deliberately broad.
 const PROMPTS =
@@ -98,7 +99,7 @@ export const checkHubIdentity = async (hub, { externalMrn, dateOfBirth }) => {
 
 /** Reads the number in the Chart Documents label, e.g. "Chart Documents(3)" → 3. */
 export const chartDocumentCount = async (page) => {
-  const label = await page.locator(`${DOCS} ${CHART_DOCUMENTS}`).innerText();
+  const label = await page.locator(CHART_DOCUMENTS_FOLDER).innerText();
   const m = /^\s*Chart Documents\s*\((\d+)\)\s*$/.exec(label);
   if (!m)
     throw new Error(
@@ -121,6 +122,6 @@ export const openChartDocuments = async (page, hub) => {
   await dropdown.locator("#letterDropDown").click();
   await webMode.click();
   await page.locator(DOCS).waitFor({ state: "visible", timeout: 30_000 });
-  await page.locator(`${DOCS} ${CHART_DOCUMENTS}`).click();
+  await page.locator(CHART_DOCUMENTS_FOLDER).click();
   return chartDocumentCount(page);
 };

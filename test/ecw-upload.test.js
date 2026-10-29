@@ -51,6 +51,7 @@ describe("uploadToChartDocuments", { timeout: 180_000 }, () => {
       log: (m) => logged.push(m),
       warningWaitMs: 2_000, // short waits: the fake answers at once
       arrivalWaitMs: 3_000,
+      recheckWaitMs: 2_000,
       ...overrides,
     });
 
@@ -111,6 +112,23 @@ describe("uploadToChartDocuments", { timeout: 180_000 }, () => {
   it("throws (so the record stays 'started') when eCW doesn't show the new document", async () => {
     await atChartDocuments({ failUploads: true });
     await assert.rejects(() => upload(), /not sure the upload worked/);
+  });
+
+  it("counts again after opening the folder when only eCW's label was stale", async () => {
+    await atChartDocuments({ staleCountAfterUpload: true });
+    assert.deepEqual(await upload(), { uploaded: true });
+    assert.equal(mock.state.uploads.length, 1); // still only once
+    assert.match(logged.join("\n"), /only went up after opening the folder again/);
+  });
+
+  it("before giving up, logs what eCW showed: dialogs and upload requests, no patient details", async () => {
+    await atChartDocuments({ failUploads: true, uploadErrorDialog: true });
+    await assert.rejects(() => upload(), /not sure the upload worked/);
+    const evidence = logged.find((m) => /What eCW showed/.test(m));
+    assert.ok(evidence, logged.join("\n"));
+    assert.match(evidence, /"eClinicalWorks" \[OK\]/);
+    assert.match(evidence, /POST \/mock\/upload-document → 200/);
+    assert.doesNotMatch(evidence, /testlast|pata|1940|GM100001/i);
   });
 
   it(`never ticks "Don't show this message again", and leaves no temp copy behind`, async () => {

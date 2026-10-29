@@ -109,6 +109,40 @@ No file names or patient names. To find which encounter a PDF is, hash it
 (`certutil -hashfile <file> SHA256`) and look up the `sha256` — this keeps
 working after billing renames or moves the file. Never deleted.
 
+## Filing the PDFs in eCW (ecw-watch)
+
+`start-ecw-watch.cmd` (its own Task Scheduler task) runs `ecw-watch.js`: every
+30 minutes, 08:30–17:30 Mon–Fri, it puts each newly exported PDF into the
+patient's **Chart Documents** in eCW as "`<date of service>` Progress Note".
+It finds the patient by External MRN (= GEHRIMed patient ID) and only uploads
+when exactly one chart has that MRN **and** the DOB and last name agree. A
+Jr/Sr/II/III/IV suffix on one side only is ignored (eCW keeps suffixes in a
+separate field); two different suffixes never match. Results go to
+`state\uploads.json` and `logs\ecw-watch-yyyy-MM-dd.log` (IDs only).
+
+Settings (`.env`): `ECW_USERNAME`, `ECW_PASSWORD`, `ECW_UPLOAD_MODE=upload`,
+`ECW_AUTOMATIC_UPLOADS=on`, `ECW_UPLOAD_SIGNED_FROM=yyyy-MM-dd` (the cutover
+agreed with billing). Without them it runs in check mode and changes nothing.
+
+The browser stays open all day — each new browser means a new eCW login and
+another confirmation email — and is closed outside active hours.
+
+**The manual list** — encounters a person must handle (no chart / several
+charts / name or DOB differs / PDF missing / an upload it isn't sure about):
+
+```bash
+npm run ecw-resolve                              # show the list
+npm run ecw-resolve -- 995274872 --uploaded      # checked: it IS in the chart
+npm run ecw-resolve -- 995274872 --retry         # checked: it is NOT — try again automatically
+```
+
+**"⛔ Stopped uploading — not sure encounter … uploaded":** eCW's Chart
+Documents count didn't go up by one, even after opening the folder again. The
+log line before it ("What eCW showed: …") lists any eCW dialogs and the upload
+requests. Open that patient's Chart Documents, then run `ecw-resolve` with
+`--uploaded` or `--retry`. Live mode picks that up at its next check and
+carries on — no restart needed.
+
 ## Running it all the time (Windows Task Scheduler)
 
 `start-watch.cmd` starts live mode; Task Scheduler runs it at log-on and

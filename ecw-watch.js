@@ -20,9 +20,14 @@
 //
 // It stops logging in after a wrong password / CAPTCHA (until restarted), tries
 // an unconfirmed login email at most 3 times a day, and stops uploading after
-// an upload it isn't sure about (until a person has checked that chart and
-// restarted it). Everything it prints also goes to logs/ecw-watch-yyyy-MM-dd.log
-// — encounter IDs and results only.
+// an upload it isn't sure about — until a person has checked that chart and
+// recorded the answer with `npm run ecw-resolve` (picked up at the next check,
+// no restart needed). Everything it prints also goes to
+// logs/ecw-watch-yyyy-MM-dd.log — encounter IDs and results only.
+//
+// The browser stays open all day: every new browser means a new eCW login and
+// another email for a person to confirm. It's closed outside active hours, and
+// replaced only if it crashed.
 import { parseArgs } from "node:util";
 import { DateTime } from "luxon";
 import { BILLING_ZONE } from "./src/dateWindow.js";
@@ -49,7 +54,6 @@ import {
 
 const MAX_ERRORS_IN_A_ROW = 5;
 const MAX_EMAIL_TRIES_PER_DAY = 3; // each try sends another login email
-const RESTART_BROWSER_EVERY_MS = 6 * 60 * 60_000;
 
 const logging = startFileLogging(logDir, "ecw-watch");
 const ts = () => DateTime.now().setZone(BILLING_ZONE).toFormat("yyyy-MM-dd HH:mm:ss");
@@ -96,10 +100,10 @@ const todayNY = () =>
 const uploads = await loadUploads(uploadsFile);
 const checkedThisRun = new Set(); // check mode records nothing, so remember here what's been checked
 let session = null;
-let sessionStartedAt = 0;
 let stopping = false;
 let wake = null;
 let blocked = null; // why it has stopped working (until restarted), or null
+let blockedFor = null; // the encounter it isn't sure about: resolving it lifts the block
 let emailTries = { day: null, count: 0 };
 
 const closeSession = async () => {
@@ -107,6 +111,9 @@ const closeSession = async () => {
   session = null;
   await s?.context.close().catch(() => {});
 };
+/** False if the browser has crashed or been closed (then it needs a new one). */
+const sessionAlive = async () =>
+  Boolean(session) && !session.page.isClosed() && (await session.page.evaluate(() => true).catch(() => false));
 const stop = (signal) => {
   if (stopping) return;
   stopping = true;
@@ -132,10 +139,9 @@ const daysToScan = (today) => {
 
 /** One check: every encounter not handled yet, through the eCW sequence. */
 const check = async () => {
-  if (!session || Date.now() - sessionStartedAt > RESTART_BROWSER_EVERY_MS) {
+  if (!(await sessionAlive())) {
     await closeSession();
     session = await openEcw({ profileDir: ecwProfileDir, headless: !args.show });
-    sessionStartedAt = Date.now();
   }
   const totals = { uploaded: 0, ready: 0, manual: 0, error: 0 };
   let errorsInARow = 0;
@@ -190,7 +196,19 @@ while (!stopping) {
   const todayLabel = todayNY().toFormat("yyyy-MM-dd");
   if (emailTries.day !== todayLabel) emailTries = { day: todayLabel, count: 0 };
 
-  if (blocked) {
+  // Pick up what a person recorded with ecw-resolve since the last check.
+  let recordError = null;
+  await uploads.reload().catch((e) => (recordError = e.message));
+  if (!recordError && blockedFor && uploads.status(blockedFor) !== "started") {
+    const now = uploads.status(blockedFor) === "uploaded" ? "marked uploaded" : "set to be tried again";
+    log(`✅ ${blockedFor} was checked by a person (${now}) — uploading again`);
+    blocked = null;
+    blockedFor = null;
+  }
+
+  if (recordError) {
+    log(`⛔ Not checking: ${recordError}`); // never upload from a record it can't read
+  } else if (blocked) {
     log(`⛔ Not checking: ${blocked}`);
   } else if (emailTries.count >= MAX_EMAIL_TRIES_PER_DAY) {
     log(`⛔ Not checking today: eCW's login email wasn't confirmed ${MAX_EMAIL_TRIES_PER_DAY} times. Tries again tomorrow, or restart it.`);
@@ -209,12 +227,17 @@ while (!stopping) {
         blocked = `eCW sign-in needs a person: ${reason}. Fix it, then restart (logging in again by itself could lock the account).`;
         log(`⛔ ${blocked}`);
       } else if (e instanceof UncertainUploadError) {
-        blocked = `not sure encounter ${e.encounterId} uploaded (${reason}). Check that chart, then restart.`;
+        blocked =
+          `not sure encounter ${e.encounterId} uploaded (${reason}). Check that chart, then run ` +
+          `"npm run ecw-resolve -- ${e.encounterId} --uploaded" (it's there) or "--retry" (it isn't).`;
+        blockedFor = e.encounterId;
         log(`⛔ Stopped uploading — ${blocked}`);
       } else {
         log(`❌ Check failed: ${reason}`);
         logDetails("the failed check", e);
-        await closeSession(); // start clean next time
+        // Keep a working browser: a new one means a new login (and email). Each
+        // encounter starts by reloading eCW's home screen anyway.
+        if (!(await sessionAlive())) await closeSession();
       }
     }
     const manual = uploads.needsManual();

@@ -13,6 +13,7 @@
     "ecw-check": "node --env-file-if-exists=.env ecw-check.js",
     "ecw-upload": "node --env-file-if-exists=.env ecw-upload.js",
     "ecw-watch": "node --env-file-if-exists=.env ecw-watch.js",
+    "ecw-resolve": "node --env-file-if-exists=.env ecw-resolve.js",
     "which-encounter": "node --env-file-if-exists=.env which-encounter.js"
   },
   "dependencies": {
