@@ -20,6 +20,10 @@
 //   ECW_AUTOMATIC_UPLOADS=on       also required for upload
 //   ECW_UPLOAD_SIGNED_FROM=yyyy-MM-dd   the cutover agreed with billing; required for upload
 //   ECW_WATCH_INTERVAL_MINUTES, ECW_ACTIVE_HOURS, ECW_ACTIVE_DAYS
+//   ECW_CHECK_OFFSET_MINUTES (default 10)  checks run on the clock at this
+//     offset — every 30 min + 10 → :10 and :40 — so they never start at the
+//     same moment as the exporter's :00/:30 checks. (The first check after
+//     starting runs straight away.)
 //
 // It stops logging in after a wrong password / CAPTCHA (until restarted), tries
 // an unconfirmed login email at most 3 times a day, and stops uploading after
@@ -34,7 +38,7 @@
 import { parseArgs } from "node:util";
 import { DateTime } from "luxon";
 import { BILLING_ZONE } from "./src/dateWindow.js";
-import { describeActiveHours, isActive, nextActiveStart } from "./src/activeHours.js";
+import { describeActiveHours, isActive, nextActiveStart, nextSlot } from "./src/activeHours.js";
 import { acquireLock } from "./src/lock.js";
 import { logDetails, startFileLogging } from "./src/logger.js";
 import { loadUploads } from "./src/uploads.js";
@@ -44,6 +48,7 @@ import { describeTidy, tidyUploaded } from "./src/ecw/tidy.js";
 import { SignInError, openEcw } from "./src/ecw/session.js";
 import {
   ecwActiveHours,
+  ecwCheckOffsetMinutes,
   ecwLockFile,
   ecwProfileDir,
   ecwUploadMode,
@@ -96,6 +101,8 @@ const { values: args } = parseArgs({
 });
 const intervalMs = Number(args.interval ?? ecwWatchIntervalMinutes) * 60_000;
 if (!(intervalMs > 0)) refuse("--interval / ECW_WATCH_INTERVAL_MINUTES must be a positive number of minutes");
+const offsetMs = ecwCheckOffsetMinutes * 60_000;
+if (!(offsetMs >= 0)) refuse("ECW_CHECK_OFFSET_MINUTES must be 0 or a positive number of minutes");
 
 const mode = ecwUploadMode;
 const credentials = { username: process.env.ECW_USERNAME, password: process.env.ECW_PASSWORD };
@@ -173,7 +180,11 @@ const sleep = (ms) =>
     setTimeout(resolve, ms);
   });
 
-log(`📤 eCW ${mode} mode, every ${intervalMs / 60_000} min, ${describeActiveHours(ecwActiveHours)} (New York time)`);
+/** The first grid time at or after `t`. */
+const slotFrom = (t) => nextSlot(t.minus({ milliseconds: 1 }), intervalMs, offsetMs);
+const firstSlot = slotFrom(DateTime.now().setZone(BILLING_ZONE).startOf("day"));
+const slotTimes = [firstSlot, nextSlot(firstSlot, intervalMs, offsetMs)].map((t) => t.toFormat(":mm"));
+log(`📤 eCW ${mode} mode, every ${intervalMs / 60_000} min (${slotTimes.join(", ")}…), ${describeActiveHours(ecwActiveHours)} (New York time)`);
 log(`   ${cutover ? `Encounters signed on or after ${cutover.toFormat("yyyy-MM-dd")}` : "No cutover date set: today's exports only"}`);
 if (mode === "check") log("   Check mode: goes as far as Chart Documents, uploads and records nothing.");
 log(`   Log file: ${logging.file()}`);
@@ -181,15 +192,21 @@ log(`   Log file: ${logging.file()}`);
 let lastManualCount = uploads.needsManual().length;
 let idle = false;
 let exitCode = 0;
+let nextDue = DateTime.now(); // the first check runs straight away; after that, on the clock grid
 while (!stopping) {
   if (!args.once && !isActive(DateTime.now(), ecwActiveHours)) {
-    const resumeAt = nextActiveStart(DateTime.now(), ecwActiveHours);
+    nextDue = slotFrom(nextActiveStart(DateTime.now(), ecwActiveHours));
     if (!idle) {
       idle = true;
       await closeSession();
-      log(`😴 Outside active hours — idle until ${resumeAt.setZone(BILLING_ZONE).toFormat("ccc yyyy-MM-dd HH:mm")}`);
+      log(`😴 Outside active hours — idle until ${nextDue.setZone(BILLING_ZONE).toFormat("ccc yyyy-MM-dd HH:mm")}`);
     }
-    await sleep(Math.max(5_000, Math.min(intervalMs, resumeAt.toMillis() - Date.now())));
+    // At most one interval at a time, then look again: a laptop that slept can't make it oversleep.
+    await sleep(Math.max(5_000, Math.min(intervalMs, nextDue.toMillis() - Date.now())));
+    continue;
+  }
+  if (!args.once && DateTime.now() < nextDue) {
+    await sleep(Math.max(50, Math.min(intervalMs, nextDue.toMillis() - Date.now())));
     continue;
   }
   if (idle) {
@@ -197,7 +214,6 @@ while (!stopping) {
     log("☀️  Active hours started — checking again");
   }
 
-  const started = Date.now();
   const todayLabel = todayNY().toFormat("yyyy-MM-dd");
   if (emailTries.day !== todayLabel) emailTries = { day: todayLabel, count: 0 };
 
@@ -266,10 +282,8 @@ while (!stopping) {
   }
   if (args.once || stopping) break;
 
-  const wait = Math.max(5_000, intervalMs - (Date.now() - started));
-  const next = DateTime.now().plus({ milliseconds: wait });
-  if (isActive(next, ecwActiveHours)) log(`   next check at ${next.setZone(BILLING_ZONE).toFormat("HH:mm")}`);
-  await sleep(wait);
+  nextDue = nextSlot(DateTime.now(), intervalMs, offsetMs);
+  if (isActive(nextDue, ecwActiveHours)) log(`   next check at ${nextDue.setZone(BILLING_ZONE).toFormat("HH:mm")}`);
 }
 
 await closeSession();

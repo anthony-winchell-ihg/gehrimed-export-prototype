@@ -4,6 +4,11 @@
 //   npm run watch -- --show       # with a visible browser window (for debugging)
 //   npm run watch -- --once       # one check, then exit
 //
+// Checks run on the clock — every 15 min → :00, :15, :30, :45; every 30 →
+// :00 and :30 — whenever it was started (the first check after starting runs
+// straight away). The eCW upload (ecw-watch.js) runs 10 minutes after these,
+// so the two never start at the same moment.
+//
 // Each check looks at TODAY's and YESTERDAY's signature dates (yesterday
 // catches notes signed just before midnight) and saves only encounters not
 // exported before, into <OUTPUT_DIR>/<yyyy-MM-dd>/. Needs GEHRIMED_USERNAME and
@@ -21,7 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { deleteOldDayFolders, deleteOldFiles, deleteStaleTempFolders } from "./src/retention.js";
 import { acquireLock } from "./src/lock.js";
-import { describeActiveHours, isActive, nextActiveStart } from "./src/activeHours.js";
+import { describeActiveHours, isActive, nextActiveStart, nextSlot } from "./src/activeHours.js";
 import {
   activeHours,
   outputDir,
@@ -184,7 +189,11 @@ const cleanUp = async () => {
   await state.pruneBefore(today.minus({ days: stateRetentionDays }).toFormat("yyyy-MM-dd"));
 };
 
-log(`👀 Watching GEHRIMed every ${intervalMs / 60_000} min → ${outputDir}`);
+/** The first clock-grid time at or after `t` (:00/:30 for every 30 min). */
+const slotFrom = (t) => nextSlot(t.minus({ milliseconds: 1 }), intervalMs);
+const firstSlot = slotFrom(DateTime.now().setZone(BILLING_ZONE).startOf("day"));
+const slotTimes = [firstSlot, nextSlot(firstSlot, intervalMs)].map((t) => t.toFormat(":mm"));
+log(`👀 Watching GEHRIMed every ${intervalMs / 60_000} min (${slotTimes.join(", ")}…) → ${outputDir}`);
 log(`   Active hours: ${describeActiveHours(activeHours)} (New York time)${args.once ? " — ignored with --once" : ""}`);
 log(`   Keeping ${retentionDays} day(s) of folders; older ones are deleted.`);
 log(`   Log file: ${logging.file()}`);
@@ -218,18 +227,23 @@ const sleep = (ms) =>
 let consecutiveErrors = 0;
 let exitCode = 0;
 let idle = false;
+let nextDue = DateTime.now(); // the first check runs straight away; after that, on the clock grid
 while (!stopping) {
   // Outside active hours: close the browser and wait. Sleeps at most one
   // interval at a time and looks again, so a changed clock or a laptop that
   // slept through the night can't make it oversleep.
   if (!args.once && !isActive(DateTime.now(), activeHours)) {
-    const resumeAt = nextActiveStart(DateTime.now(), activeHours);
+    nextDue = slotFrom(nextActiveStart(DateTime.now(), activeHours));
     if (!idle) {
       idle = true;
       await closeSession();
-      log(`😴 Outside active hours — idle until ${resumeAt.setZone(BILLING_ZONE).toFormat("ccc yyyy-MM-dd HH:mm")}. Nothing signed meanwhile is missed.`);
+      log(`😴 Outside active hours — idle until ${nextDue.setZone(BILLING_ZONE).toFormat("ccc yyyy-MM-dd HH:mm")}. Nothing signed meanwhile is missed.`);
     }
-    await sleep(Math.max(5_000, Math.min(intervalMs, resumeAt.toMillis() - Date.now())));
+    await sleep(Math.max(5_000, Math.min(intervalMs, nextDue.toMillis() - Date.now())));
+    continue;
+  }
+  if (!args.once && DateTime.now() < nextDue) {
+    await sleep(Math.max(50, Math.min(intervalMs, nextDue.toMillis() - Date.now())));
     continue;
   }
   if (idle) {
@@ -237,7 +251,6 @@ while (!stopping) {
     log("☀️  Active hours started — checking again");
   }
 
-  const started = Date.now();
   if (signInBlocked) {
     log("⛔ Not checking: the last sign-in failed (see above). Fix GEHRIMED_USERNAME / GEHRIMED_PASSWORD in .env, " +
       "then restart (Task Scheduler: End, then Run). Retrying automatically could lock the account.");
@@ -271,10 +284,8 @@ while (!stopping) {
     process.exit(4);
   }
 
-  const wait = Math.max(5_000, intervalMs - (Date.now() - started));
-  const nextCheck = DateTime.now().plus({ milliseconds: wait });
-  if (isActive(nextCheck, activeHours)) log(`   next check at ${nextCheck.setZone(BILLING_ZONE).toFormat("HH:mm")}`);
-  await sleep(wait);
+  nextDue = nextSlot(DateTime.now(), intervalMs);
+  if (isActive(nextDue, activeHours)) log(`   next check at ${nextDue.setZone(BILLING_ZONE).toFormat("HH:mm")}`);
 }
 
 await closeSession();

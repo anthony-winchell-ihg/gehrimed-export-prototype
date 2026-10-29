@@ -29,7 +29,7 @@ Create `.env` (git-ignored):
 | `GEHRIMED_PASSWORD` | watch mode, `--headless` | its password |
 | `OUTPUT_DIR` | optional (default `./output`) | where the date folders go — point at the **synced Teams channel folder** |
 | `STATE_FILE` | optional (default `./state/exported.json`) | record of exported encounter IDs |
-| `WATCH_INTERVAL_MINUTES` | optional (default `15`) | how often watch mode checks |
+| `WATCH_INTERVAL_MINUTES` | optional (default `15`) | how often watch mode checks, on the clock (`30` → :00 and :30) |
 | `ACTIVE_HOURS` | optional (default `07:30-17:00`) | when watch mode checks, New York time; `always` = around the clock |
 | `ACTIVE_DAYS` | optional (default `mon-fri`) | which days, e.g. `mon-fri`, `mon,wed,fri`, `all` |
 | `LOG_DIR` | optional (default `./logs`) | daily log files (`watch-yyyy-MM-dd.log`), kept `RETENTION_DAYS` days |
@@ -48,6 +48,11 @@ npm run watch -- --once       # one check, then exit
 Every 15 minutes: checks **today's and yesterday's** signature dates
 (yesterday catches notes signed just before midnight) and saves only
 encounters it hasn't exported before.
+
+- **On the clock:** checks run at fixed times — every 15 min → :00, :15, :30,
+  :45; every 30 → :00 and :30 — no matter when it was started (the first check
+  after starting runs straight away). The eCW upload runs 10 minutes after
+  (:10/:40), so the two never start together.
 
 - **No duplicates:** exported encounter IDs are recorded in `state/exported.json`
   (IDs and dates only — no names). Billing can move or delete files freely; they
@@ -113,7 +118,9 @@ working after billing renames or moves the file. Never deleted.
 ## Filing the PDFs in eCW (ecw-watch)
 
 `start-ecw-watch.cmd` (its own Task Scheduler task) runs `ecw-watch.js`: every
-30 minutes, 08:30–17:30 Mon–Fri, it puts each newly exported PDF into the
+30 minutes at :10 and :40 past the hour, 08:30–17:30 Mon–Fri — 10 minutes
+after the exporter's :00/:30 checks, so the two never start together
+(`ECW_CHECK_OFFSET_MINUTES`, default 10) — it puts each newly exported PDF into the
 patient's **Chart Documents** in eCW as "`<date of service>` Progress Note".
 It finds the patient by External MRN (= GEHRIMed patient ID) and only uploads
 when exactly one chart has that MRN **and** the DOB and last name agree. A

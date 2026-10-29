@@ -6,6 +6,7 @@ import {
   describeActiveHours,
   isActive,
   nextActiveStart,
+  nextSlot,
   parseActiveHours,
 } from "./activeHours.js";
 
@@ -105,5 +106,35 @@ describe("active hours", () => {
       () => parseActiveHours("07:30-17:00", "weekdays"),
       /unknown day/,
     );
+  });
+});
+
+describe("nextSlot", () => {
+  const MIN = 60_000;
+  const at = (iso, offsetMin = 10) => nextSlot(ny(iso), 30 * MIN, offsetMin * MIN).toFormat("yyyy-MM-dd HH:mm:ss");
+
+  it("every 30 min with a 10 min offset is :10 and :40, whenever it's asked", () => {
+    assert.equal(at("2026-10-29T08:30:00"), "2026-10-29 08:40:00");
+    assert.equal(at("2026-10-29T08:39:59"), "2026-10-29 08:40:00");
+    assert.equal(at("2026-10-29T08:40:00"), "2026-10-29 09:10:00"); // strictly after
+    assert.equal(at("2026-10-29T11:47:12"), "2026-10-29 12:10:00");
+  });
+
+  it("with no offset, :00 and :30", () => {
+    assert.equal(at("2026-10-29T08:30:00", 0), "2026-10-29 09:00:00");
+    assert.equal(at("2026-10-29T08:31:00", 0), "2026-10-29 09:00:00");
+  });
+
+  it("rolls over midnight onto the next day's first slot", () => {
+    assert.equal(at("2026-10-29T23:45:00"), "2026-10-30 00:10:00");
+  });
+
+  it("keeps wall-clock times on daylight-saving days", () => {
+    assert.equal(at("2026-11-01T08:35:00"), "2026-11-01 08:40:00"); // clocks went back at 02:00
+    assert.equal(at("2026-03-08T08:35:00"), "2026-03-08 08:40:00"); // clocks went forward
+  });
+
+  it("works for short test intervals too (seconds)", () => {
+    assert.equal(nextSlot(ny("2026-10-29T08:30:01"), 3_000, 0).toFormat("HH:mm:ss"), "08:30:03");
   });
 });

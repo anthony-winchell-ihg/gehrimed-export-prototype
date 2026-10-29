@@ -340,6 +340,12 @@ describe("watch.js against mock GEHRIMed", { timeout: 300_000 }, () => {
     assert.doesNotMatch(log, /TESTLAST|Testlast|PAT[A-Z]\b/);
   });
 
+  it("checks on the clock (:00/:30 for every 30 min), whenever it's started — the eCW upload runs 10 minutes after", async () => {
+    const { code, out } = await runNode("watch.js", { ...env, WATCH_INTERVAL_MINUTES: "30" }, ["--once", "--today", "2026-10-18"]);
+    assert.equal(code, 0, out);
+    assert.match(out, /Watching GEHRIMed every 30 min \(:00, :30…\)/);
+  });
+
   it("first check exports today's and yesterday's signed encounters (and clears folders 7+ days old)", async () => {
     // Folders from before the retention window, plus one that must survive.
     for (const d of ["2026-10-01", "2026-10-06", "2026-10-07"]) {

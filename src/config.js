@@ -38,6 +38,9 @@ export const stagingDir = path.join(path.dirname(stateFile), "staging"); // priv
 export const ecwLockFile = path.join(path.dirname(stateFile), "ecw.lock"); // one eCW run at a time (they'd share the profile)
 // eCW live mode (ecw-watch.js). Its own hours, so it runs after the exporter rather than alongside it.
 export const ecwWatchIntervalMinutes = Number(process.env.ECW_WATCH_INTERVAL_MINUTES || 30);
+// Checks run on the clock this many minutes after the exporter's (:00/:30), so
+// they don't run at the same moment — every 30 min + 10 → :10 and :40.
+export const ecwCheckOffsetMinutes = Number(process.env.ECW_CHECK_OFFSET_MINUTES || 10);
 export const ecwActiveHours = parseActiveHours(
   process.env.ECW_ACTIVE_HOURS || "08:30-17:30",
   process.env.ECW_ACTIVE_DAYS || "mon-fri",

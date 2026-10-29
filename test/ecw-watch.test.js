@@ -84,6 +84,7 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
 
     const { code, out } = await watchOnce(envFor());
     assert.equal(code, 0, out);
+    assert.match(out, /every 30 min \(:10, :40…\)/); // 10 minutes after the exporter's :00 / :30
     assert.match(out, /E1 \(signed 2026-10-26\): ready/);
     assert.equal(mock.state.uploads.length, 0);
     await assert.rejects(() => fs.access(path.join(stateDir, "uploads.json")));
@@ -209,8 +210,8 @@ describe("ecw-watch.js (live mode) against the fake eCW", { timeout: 300_000 }, 
     await exported("E1", "GM100001", "TestlastaPata_DOB01.02.1940_DOS10.12.2026.pdf", MONDAY);
     await exported("E3", "GM100003", "TestlastcPatc_DOB03.04.1942_DOS10.12.2026.pdf", MONDAY);
 
-    // Live mode, checking every 3 seconds, around the clock.
-    const env = uploading({ ECW_ACTIVE_HOURS: "always", ECW_ACTIVE_DAYS: "all" });
+    // Live mode, checking every 3 seconds, around the clock, on the 3-second grid.
+    const env = uploading({ ECW_ACTIVE_HOURS: "always", ECW_ACTIVE_DAYS: "all", ECW_CHECK_OFFSET_MINUTES: "0" });
     const child = spawn(process.execPath, ["ecw-watch.js", "--interval", "0.05", "--today", MONDAY], {
       cwd: root,
       env: { ...process.env, ...env },

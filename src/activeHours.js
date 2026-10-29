@@ -86,6 +86,31 @@ export const nextActiveStart = (now, schedule) => {
   throw new Error("ACTIVE_DAYS has no days in it");
 };
 
+/**
+ * The first check time strictly after `now` on a fixed clock grid: every
+ * `intervalMs`, counted from midnight New York time, shifted by `offsetMs`.
+ * E.g. every 30 min, offset 10 min → :10 and :40 past each hour, whenever the
+ * program was started. Built from the wall clock (set(), not plus()), so a
+ * daylight-saving day doesn't shift it by an hour.
+ */
+export const nextSlot = (now, intervalMs, offsetMs = 0) => {
+  const t = now.setZone(BILLING_ZONE);
+  const sinceMidnight = ((t.hour * 60 + t.minute) * 60 + t.second) * 1000 + t.millisecond;
+  const offset = ((offsetMs % intervalMs) + intervalMs) % intervalMs;
+  let slot = (Math.floor((sinceMidnight - offset) / intervalMs) + 1) * intervalMs + offset;
+  let day = t.startOf("day");
+  if (slot >= 24 * 60 * 60_000) {
+    day = day.plus({ days: 1 });
+    slot = offset;
+  }
+  return day.set({
+    hour: Math.floor(slot / 3_600_000),
+    minute: Math.floor(slot / 60_000) % 60,
+    second: Math.floor(slot / 1000) % 60,
+    millisecond: Math.round(slot % 1000),
+  });
+};
+
 /** "07:30-17:00 mon,tue,wed,thu,fri" for the startup message. */
 export const describeActiveHours = (schedule) => {
   if (!schedule) return "always";
